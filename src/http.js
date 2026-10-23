@@ -48,22 +48,24 @@ async function readJson(req) {
   }
 }
 
-// Which shop a connection belongs to: our own header, AgentCore's pass-through custom header, a query
-// parameter, or the signed-in user's name from a token the platform has already checked.
-export function shopFrom(req, url) {
+// Which shop a connection belongs to. Locally: our own header or a query parameter. On AgentCore the platform has
+// already checked the caller's token, so the shop is tied to the signed-in user: "<user>-<shop>", and a caller can
+// name only shops under their own sign-in.
+export function shopFrom(req, url, env = process.env) {
   const h = req.headers;
   const explicit = h["x-imali-shop"] || h["x-amzn-bedrock-agentcore-runtime-custom-shop"] || url.searchParams.get("shop");
-  if (explicit) return cleanShopId(explicit);
   const auth = h.authorization;
-  if (auth?.startsWith("Bearer ") && process.env.TRUST_PLATFORM_JWT === "1") {
+  if (env.TRUST_PLATFORM_JWT === "1") {
+    let user = "";
     try {
-      const claims = JSON.parse(Buffer.from(auth.split(".")[1], "base64url").toString("utf8"));
-      return cleanShopId(claims.username || claims["cognito:username"] || claims.sub);
+      const claims = auth?.startsWith("Bearer ") ? JSON.parse(Buffer.from(auth.split(".")[1], "base64url").toString("utf8")) : {};
+      user = claims.username || claims["cognito:username"] || claims.sub || "";
     } catch {
-      /* fall through to the demo shop */
+      user = "";
     }
+    return cleanShopId(`${cleanShopId(user || "guest").slice(0, 16)}-${cleanShopId(explicit || "main").slice(0, 23)}`);
   }
-  return "demo";
+  return explicit ? cleanShopId(explicit) : "demo";
 }
 
 export function createApp({ store, env = process.env, log = (event, data) => console.log(JSON.stringify({ t: new Date().toISOString(), event, ...data })) } = {}) {
@@ -89,7 +91,7 @@ export function createApp({ store, env = process.env, log = (event, data) => con
     if (req.method === "POST") {
       const body = await readJson(req);
       if (stateless) {
-        const server = createMcpServer({ store, shopId: shopFrom(req, url), log });
+        const server = createMcpServer({ store, shopId: shopFrom(req, url, env), log });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on("close", () => {
           transport.close();
@@ -105,7 +107,7 @@ export function createApp({ store, env = process.env, log = (event, data) => con
       }
       if (!id || (onePerVm && isInitializeRequest(body))) {
         if (!isInitializeRequest(body)) return send(res, 400, { jsonrpc: "2.0", error: { code: -32000, message: "Start with an initialize request" }, id: null });
-        const shopId = shopFrom(req, url);
+        const shopId = shopFrom(req, url, env);
         const platformId = req.headers["mcp-session-id"];
         const server = createMcpServer({ store, shopId, log });
         const transport = new StreamableHTTPServerTransport({
@@ -150,9 +152,13 @@ export function createApp({ store, env = process.env, log = (event, data) => con
     calls.push(now);
     const body = await readJson(req);
     if (!body || !Array.isArray(body.messages)) return send(res, 400, { error: "Expected messages" });
-    const base = String(req.headers["x-llm-base-url"] || env.LLM_BASE_URL || "https://llm.ebenworks.co/v1").replace(/\/+$/, "");
-    const key = req.headers["x-llm-key"] || env.LLM_API_KEY;
-    const model = req.headers["x-llm-model"] || env.LLM_MODEL || "sonnet";
+    // A caller's own endpoint is used only with the caller's own key: this server's key never leaves for an
+    // address the caller names.
+    const own = Boolean(req.headers["x-llm-key"]);
+    if (req.headers["x-llm-base-url"] && !own) return send(res, 400, { error: "Give your own API key with your own model endpoint." });
+    const base = String((own && req.headers["x-llm-base-url"]) || env.LLM_BASE_URL || "https://llm.ebenworks.co/v1").replace(/\/+$/, "");
+    const key = own ? req.headers["x-llm-key"] : env.LLM_API_KEY;
+    const model = (own && req.headers["x-llm-model"]) || env.LLM_MODEL || "sonnet";
     if (!key) return send(res, 503, { error: "No model key: set LLM_API_KEY, or add your own endpoint and key in the simulator's settings." });
     const started = Date.now();
     const upstream = await fetch(`${base}/chat/completions`, {

@@ -158,13 +158,60 @@ describe("Imali AI MCP server", () => {
     await client.close();
   });
 
-  test("undo takes out today's last entry", async () => {
+  test("undo asks first, in words without elicitation and through a form with it", async () => {
     const { client } = await connect("t-undo");
     await call(client, "record_sale", { items: [{ item: "milk", qty: 1 }], payment: "mobile" });
-    const u = await call(client, "undo_last_entry");
-    assert.match(u.speech, /Fresh milk/);
-    const day = await call(client, "get_day_summary");
-    assert.equal(day.entries, 0);
+    const ask = await call(client, "undo_last_entry");
+    assert.equal(ask.ok, false);
+    assert.match(ask.question, /Fresh milk/);
+    assert.equal((await call(client, "get_day_summary")).entries, 1, "nothing removed before a yes");
+    const u = await call(client, "undo_last_entry", { confirm: true });
+    assert.match(u.speech, /^Removed: /);
+    assert.equal((await call(client, "get_day_summary")).entries, 0);
+    await client.close();
+
+    const asked = [];
+    const withForm = await connect("t-undo-form", { elicit: async (req) => (asked.push(req.params.message), { action: "accept", content: { confirm: true } }) });
+    await call(withForm.client, "record_sale", { items: [{ item: "salt", qty: 1 }], payment: "cash" });
+    const r = await call(withForm.client, "undo_last_entry");
+    assert.match(asked[0], /Take out this entry\? Sold 1 × Salt 1 kg in cash/);
+    assert.match(r.speech, /^Removed: /);
+    await withForm.client.close();
+  });
+
+  test("reset asks first, and a no keeps the books", async () => {
+    const { client } = await connect("t-reset", { elicit: async () => ({ action: "accept", content: { confirm: false } }) });
+    await call(client, "record_sale", { items: [{ item: "bread", qty: 1 }], payment: "cash" });
+    const r = await call(client, "reset_demo_shop");
+    assert.equal(r.speech, "Okay, the books stay as they are.");
+    assert.equal((await call(client, "get_day_summary")).entries, 1);
+    await client.close();
+  });
+
+  test("a repeated request id is recorded once", async () => {
+    const { client } = await connect("t-repeat");
+    const req = { name: "record_sale", arguments: { items: [{ item: "bread", qty: 2 }], payment: "cash" }, _meta: { "io.ebenworks.imali/request-id": "call-123" } };
+    const first = (await client.callTool(req)).structuredContent;
+    const again = (await client.callTool(req)).structuredContent;
+    assert.equal(again.entry.id, first.entry.id);
+    assert.match(again.speech, /already recorded/);
+    assert.equal((await call(client, "get_day_summary")).entries, 1);
+    await client.close();
+  });
+
+  test("asks before stock or cash would go below zero, or when the total does not match the prices", async () => {
+    const { client } = await connect("t-guards");
+    const tooMany = await call(client, "record_sale", { items: [{ item: "eggs", qty: 50 }], payment: "cash" });
+    assert.equal(tooMany.ok, false);
+    assert.match(tooMany.question, /only 3 Eggs, tray of 30/);
+    const onWord = await call(client, "record_sale", { items: [{ item: "eggs", qty: 4 }], payment: "cash", books_behind_shelf: true });
+    assert.equal(onWord.ok, true);
+    const bigCost = await call(client, "record_expense", { amount: 100000, category: "rent" });
+    assert.equal(bigCost.ok, false);
+    assert.match(bigCost.question, /in the till, less than \$100,000\.00/);
+    const mismatch = await call(client, "record_sale", { items: [{ item: "bread", qty: 2 }], payment: "cash", amount_received: 5 });
+    assert.equal(mismatch.ok, false);
+    assert.match(mismatch.question, /add up to \$2\.20 but you said \$5\.00/);
     await client.close();
   });
 });

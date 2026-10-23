@@ -8,6 +8,7 @@ ENV NODE_ENV=production \
     SERVE_WEB=0 \
     PORT=8000 \
     HOST=0.0.0.0 \
+    TRUST_PLATFORM_JWT=1 \
     IMALI_STORE=dynamodb \
     IMALI_TABLE=imali-ai-alexa-books \
     AWS_REGION=us-east-1

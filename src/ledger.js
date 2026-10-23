@@ -293,7 +293,9 @@ export function buildSale(books, args = {}) {
     stock.push({ item: item.id, qty: -qty });
     parts.push(`${fmtQty(qty)} × ${item.name}`);
     const left = (levels[item.id] || 0) - qty;
-    if (left < 0) warnings.push(`Your books show only ${fmtQty(levels[item.id] || 0)} ${item.name} in stock. Recording it anyway; a stock count will settle it.`);
+    if (left < 0 && !args.books_behind_shelf)
+      return fail(`Your books show only ${fmtQty(levels[item.id] || 0)} ${item.name} in stock. Did you really sell ${fmtQty(qty)}? If the shelf had more than the books, say so and I'll record it.`);
+    if (left < 0) warnings.push(`Your books showed only ${fmtQty(levels[item.id] || 0)} ${item.name}; recorded on your word. A stock count will settle it.`);
     else if (left <= item.reorderAt) warnings.push(`${item.name} is down to ${fmtQty(left)}. Time to reorder.`);
   }
   let total = listTotal;
@@ -308,7 +310,8 @@ export function buildSale(books, args = {}) {
     warnings.unshift(`${foreign} at ${rate} to the US dollar${args.rate_note ? ` (${args.rate_note})` : ""} is ${money(received)}.`);
   }
   if (received !== null && received > 0 && received !== listTotal) {
-    if (Math.abs(received - listTotal) > Math.max(500, listTotal * 0.5)) return fail(`Your prices add up to ${money(listTotal)} but you said ${money(received)}. Which is right?`);
+    if (Math.abs(received - listTotal) > Math.max(50, Math.round(listTotal * 0.1)) && !args.price_confirmed)
+      return fail(`Your prices add up to ${money(listTotal)} but you said ${money(received)}. Which is right?`);
     warnings.push(`Price list total is ${money(listTotal)}; recording the ${money(received)} you received.`);
     total = received;
   }
@@ -362,6 +365,10 @@ export function buildStockIn(books, args = {}) {
   }
   const stated = toCents(args.total);
   if (stated !== null && stated > 0 && Math.abs(stated - total) > 2) warnings.push(`The lines add up to ${money(total)}, not the ${money(stated)} printed as the total. Recording ${money(total)}; check the invoice.`);
+  if (paid !== "credit") {
+    const short = shortOf(books, paid, total);
+    if (short) return fail(short);
+  }
   const lines = [{ account: "stock", debit: total }];
   if (paid === "credit") lines.push({ account: "creditors", credit: total, party: supplier });
   else lines.push({ account: METHOD_ACCOUNT[paid], credit: total });
@@ -369,11 +376,21 @@ export function buildStockIn(books, args = {}) {
   return { ok: true, entry: entry(books, "stock-in", `Stock in: ${parts.join(", ")}, ${how}`, lines, stock, { amount: total, method: paid, party: supplier, newItems }), warnings };
 }
 
+// Money paid out of the till or the mobile wallet cannot be more than the books say is there.
+function shortOf(books, method, amount) {
+  const account = METHOD_ACCOUNT[method];
+  const have = balances(books)[account];
+  if (amount <= have) return null;
+  return `Your books show ${money(have)} ${method === "mobile" ? "in mobile money" : "in the till"}, less than ${money(amount)}. Did you pay it ${method === "mobile" ? "in cash" : "by mobile money"} or from your own pocket?`;
+}
+
 export function buildExpense(books, args = {}) {
   const amount = toCents(args.amount);
   if (!amount || amount <= 0 || amount > MAX_CENTS) return fail("How much was it?");
   const method = methodOf(args.payment) ?? "cash";
   if (method === "credit") return fail("Did you pay it in cash or by mobile money?");
+  const short = shortOf(books, method, amount);
+  if (short) return fail(short);
   const what = String(args.category || args.note || "Running cost").slice(0, 60);
   const lines = [{ account: "expenses", debit: amount, party: titleCase(what) }, { account: METHOD_ACCOUNT[method], credit: amount }];
   return { ok: true, entry: entry(books, "expense", `Paid ${money(amount)} for ${what.toLowerCase()}`, lines, [], { amount, method }), warnings: [] };
@@ -397,6 +414,8 @@ export function buildSupplierPayment(books, args = {}) {
   if (!amount || amount <= 0 || amount > MAX_CENTS) return fail("How much did you pay them?");
   const method = methodOf(args.method ?? args.payment) ?? "cash";
   if (method === "credit") return fail("Did you pay in cash or by mobile money?");
+  const short = shortOf(books, method, amount);
+  if (short) return fail(short);
   const party = findParty(books.suppliers, args.supplier)?.name ?? titleCase(args.supplier || "Supplier");
   const lines = [{ account: "creditors", debit: amount, party }, { account: METHOD_ACCOUNT[method], credit: amount }];
   return { ok: true, entry: entry(books, "supplier-payment", `Paid ${party} ${money(amount)}`, lines, [], { amount, method, party }), warnings: [] };

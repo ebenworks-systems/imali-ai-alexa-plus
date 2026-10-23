@@ -150,16 +150,45 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
     return rest;
   }
 
+  // Asks the owner a yes-or-no question through elicitation. Returns true or false, or null when this client
+  // cannot show a form (the tool then asks in words and waits for a call with confirm: true).
+  async function confirmWithOwner(extra, message, title) {
+    if (!server.server.getClientCapabilities()?.elicitation) return null;
+    try {
+      const answer = await extra.sendRequest(
+        { method: "elicitation/create", params: { mode: "form", message, requestedSchema: { type: "object", properties: { confirm: { type: "boolean", title, default: false } }, required: ["confirm"] } } },
+        ElicitResultSchema,
+        { timeout: 180_000 },
+      );
+      return answer.action === "accept" && answer.content?.confirm === true;
+    } catch (err) {
+      log("elicitation-failed", { shopId, message: String(err?.message || err) });
+      return null;
+    }
+  }
+
+  // The client may name each tool call with a request id in _meta; a repeat of the same id (a retry, a double
+  // tap) is answered with the entry already recorded instead of a second one.
+  const REQUEST_ID = "io.ebenworks.imali/request-id";
+  const requestIdOf = (extra) => {
+    const id = extra?._meta?.[REQUEST_ID];
+    return typeof id === "string" && id.length <= 100 ? id : null;
+  };
+
   // A record tool: build the entry with the ledger, refuse it unless it balances, apply it, say it.
   function recordTool(name, title, description, inputSchema, build, speak) {
     server.registerTool(
       name,
       { title, description, inputSchema, outputSchema: EntryOut, annotations: { title, ...WRITE }, _meta: cardMeta },
-      async (args) =>
+      async (args, extra) =>
         withBooks((books) => {
+          const requestId = requestIdOf(extra);
+          const seen = requestId ? books.journal.find((e) => e.requestId === requestId) : null;
+          if (seen) return { out: result({ ok: true, kind: seen.kind, speech: `That one is already recorded: ${seen.memo}.`, entry: entryView(seen), warnings: ["A repeat of a request already recorded; nothing new was added."], shop: shopView(books) }) };
           const built = build(books, args);
           if (!built.ok) return { out: askBack(books, name, built.question) };
           if (!L.isBalanced(built.entry)) return { out: askBack(books, name, "That entry would not balance, so I left the books as they were. Can you say it again?") };
+          if (requestId) built.entry.requestId = requestId;
           const after = L.applyEntry(books, built.entry);
           log("entry", { shopId, kind: built.entry.kind, amount: built.entry.amount });
           const speech = speak(built.entry, after, args) + levelsLine(after, built.entry);
@@ -177,6 +206,8 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       payment: z.enum(["cash", "mobile", "credit"]).describe("cash, mobile money, or credit (on the customer's tab)"),
       customer: z.string().max(40).optional().describe("Who took it on credit; required for credit"),
       amount_received: z.number().positive().optional().describe("Only if the owner said the total they took"),
+      books_behind_shelf: z.boolean().optional().describe("True only after the owner confirmed they sold more than the books show in stock"),
+      price_confirmed: z.boolean().optional().describe("True only after the owner confirmed a total that differs from the price list"),
     },
     L.buildSale,
     (e, after) => `Got it: ${itemsSaid(after, e.stock)}, ${e.method === "credit" ? `on credit to ${e.party}` : e.method === "mobile" ? "mobile money" : "cash"}, ${cents(e.amount)}.`,
@@ -483,34 +514,50 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
     "undo_last_entry",
     {
       title: "Undo the last entry",
-      description: "Take out the most recent entry recorded today, when the owner says it was wrong.",
-      inputSchema: {},
+      description: "Take out the most recent entry recorded today, when the owner says it was wrong. The owner confirms first: through a form if the client supports elicitation, otherwise call again with confirm: true after they say yes.",
+      inputSchema: { confirm: z.boolean().optional().describe("True only after the owner said yes to taking out that entry") },
       outputSchema: { ok: z.boolean(), kind: z.string(), speech: z.string(), question: z.string().optional(), removed: z.string().optional(), shop: EntryOut.shop, warnings: z.array(z.string()) },
       annotations: { title: "Undo the last entry", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    async () =>
-      withBooks((books) => {
-        const last = [...books.journal].reverse().find((e) => e.kind !== "opening" && L.dayOf(e.at) === books.today);
-        if (!last) return { out: askBack(books, "undo", "There's nothing recorded today to undo.") };
+    async ({ confirm }, extra) => {
+      const books0 = prepare((await store.load(shopId)) ?? sampleBooks(clock()), clock());
+      const target = [...books0.journal].reverse().find((e) => e.kind !== "opening" && L.dayOf(e.at) === books0.today);
+      if (!target) return askBack(books0, "undo", "There's nothing recorded today to undo.");
+      if (confirm !== true) {
+        const yes = await confirmWithOwner(extra, `Take out this entry? ${target.memo}.`, "Take it out");
+        if (yes === null) return askBack(books0, "undo", `Take out "${target.memo}"? Say yes to confirm.`);
+        if (!yes) return result({ ok: true, kind: "undo", speech: "Okay, I left it in the books.", shop: shopView(books0), warnings: [] });
+      }
+      return withBooks((books) => {
+        const last = books.journal.find((e) => e.id === target.id);
+        if (!last) return { out: askBack(books, "undo", "That entry is already gone.") };
         const after = L.removeEntry(books, last.id);
         return { books: after, out: result({ ok: true, kind: "undo", speech: `Removed: ${last.memo}.`, removed: last.memo, shop: shopView(after), warnings: [] }) };
-      }),
+      });
+    },
   );
 
   server.registerTool(
     "reset_demo_shop",
     {
       title: "Reset the demo shop",
-      description: "Put this shop's books back to the invented demo shop's opening position. Only when the owner asks to start the demo again.",
-      inputSchema: {},
+      description: "Put this shop's books back to the invented demo shop's opening position. Only when the owner asks to start the demo again; the owner confirms first, as for undo_last_entry.",
+      inputSchema: { confirm: z.boolean().optional().describe("True only after the owner said yes to wiping the books") },
       outputSchema: { ok: z.boolean(), kind: z.string(), speech: z.string(), shop: EntryOut.shop, warnings: z.array(z.string()) },
       annotations: { title: "Reset the demo shop", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
-    async () =>
-      withBooks(() => {
+    async ({ confirm }, extra) => {
+      if (confirm !== true) {
+        const yes = await confirmWithOwner(extra, "Wipe this shop's books and start the demo shop again? Every entry goes.", "Wipe and start again");
+        const books0 = prepare((await store.load(shopId)) ?? sampleBooks(clock()), clock());
+        if (yes === null) return askBack(books0, "reset", "Wipe every entry and start the demo shop again? Say yes to confirm.");
+        if (!yes) return result({ ok: true, kind: "reset", speech: "Okay, the books stay as they are.", shop: shopView(books0), warnings: [] });
+      }
+      return withBooks(() => {
         const fresh = prepare(sampleBooks(clock()), clock());
         return { books: fresh, out: result({ ok: true, kind: "reset", speech: `${fresh.shop.name} is back to its opening books.`, shop: shopView(fresh), warnings: [] }) };
-      }),
+      });
+    },
   );
 
   // ---- MCP Apps views ---------------------------------------------------------------------------
