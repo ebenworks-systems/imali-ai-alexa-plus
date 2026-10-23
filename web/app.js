@@ -385,11 +385,19 @@ function speak(text, { listenAfter = false } = {}) {
   const v = pickVoice();
   if (v) u.voice = v;
   u.rate = 1.03;
-  u.onstart = () => setState("speaking");
-  u.onend = () => {
-    setState("idle");
+  // The screen leaves "Working" at once. A browser with no speech voices never reports the end of speaking,
+  // so a timer sized to the sentence sets the screen back to ready either way.
+  let finished = false;
+  const done = () => {
+    if (finished) return;
+    finished = true;
+    if (els.screen.dataset.state === "speaking") setState("idle");
     if (listenAfter && lastInputWasVoice) listen();
   };
+  setState("speaking");
+  u.onend = done;
+  u.onerror = done;
+  setTimeout(done, 2500 + text.length * 90);
   speechSynthesis.speak(u);
 }
 
