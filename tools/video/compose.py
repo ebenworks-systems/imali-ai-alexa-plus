@@ -6,7 +6,8 @@
 Reads submission/work/film-raw.mp4 and its events from record.cjs, and the takes from narrate.py. Each take starts
 at the moment its event was marked during the recording. An assistant take that would run into the next voice is
 sped up a little (at most 12%) and the speed-up is reported. The narrator's lines are captioned on a light card at
-the foot of the picture; the owner's and assistant's words are already on the screen. Writes
+the foot of the picture; the owner's and assistant's words are already on the screen. The .srt carries every spoken
+line, the owner's and the assistant's labelled, for the video platform's captions. Writes
 submission/imali-ai-alexa-plus-demo.mp4 and .srt, with the sound brought to -16 LUFS.
 """
 import json, os, subprocess
@@ -18,6 +19,8 @@ LENGTHS = json.load(open(os.path.join(WORK, "takes", "lengths.json")))
 EVENTS = json.load(open(os.path.join(WORK, "film-raw.events.json")))
 OUT = os.path.join(ROOT, "submission", "imali-ai-alexa-plus-demo.mp4")
 CAPTIONS = {b["narrator"]: b["caption"] for s in SCRIPT["scenes"] for b in s["beats"] if "narrator" in b}
+OWNER = {b["owner"]: b["say"] for s in SCRIPT["scenes"] for b in s["beats"] if "owner" in b}
+REPLIES_FILE = os.path.join(WORK, "replies.json")
 
 
 def stamp(t, sep):
@@ -67,13 +70,13 @@ def main():
     total = max(EVENTS["seconds"], lines[-1]["end"] + 1.5)
     captions = "/tmp/imali-ai-alexa-plus-captions.ass"  # a path with no spaces or brackets, for the filter graph
     open(captions, "w").write(ass(lines, w, h))
+    replies = {r["id"]: r["text"] for r in json.load(open(REPLIES_FILE))}
+    said = {"owner": lambda i: f"Rudo: {OWNER[i]}", "assistant": lambda i: f"Assistant: {replies[i]}", "narrator": lambda i: CAPTIONS[i]}
     with open(OUT.replace(".mp4", ".srt"), "w") as srt:
-        n = 0
-        for l in lines:
-            if l["kind"] != "narrator":
-                continue
-            n += 1
-            srt.write(f"{n}\n{stamp(l['start'], ',')} --> {stamp(l['end'] + 0.3, ',')}\n{CAPTIONS[l['id']]}\n\n")
+        for n, l in enumerate(lines, 1):
+            # Each cue ends before the next begins.
+            end = min(l["end"] + 0.3, lines[n]["start"] - 0.05) if n < len(lines) else l["end"] + 0.3
+            srt.write(f"{n}\n{stamp(l['start'], ',')} --> {stamp(end, ',')}\n{said[l['kind']](l['id'])}\n\n")
     inputs, filters = ["-i", film], []
     for i, l in enumerate(lines, 1):
         inputs += ["-i", os.path.join(WORK, "takes", f"{l['id']}.wav")]

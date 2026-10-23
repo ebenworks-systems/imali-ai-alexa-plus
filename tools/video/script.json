@@ -25,24 +25,18 @@
      "say": "Sold three bread and two cooking oil, cash."
     },
     {
-     "assistant": true
-    },
-    {
      "narrator": "n1",
-     "say": "Rudo is an invented shop owner. Each card is a real double-entry record, balanced to the cent by code, never by the model.",
-     "caption": "Rudo is an invented shop owner. Each card is a real double-entry record, balanced to the cent by code, never by the model."
-    }
-   ]
-  },
-  {
-   "id": "credit",
-   "beats": [
-    {
-     "owner": "o2",
-     "say": "Mai Tendai took two sugar and a bag of maize meal on credit."
+     "say": "Rudo is an invented shop owner. Her words go to an agent, which picks a tool on the shop's MCP server.",
+     "caption": "Rudo is an invented shop owner. Her words go to an agent, which picks a tool on the shop's MCP server.",
+     "overlap": true
     },
     {
      "assistant": true
+    },
+    {
+     "narrator": "n2",
+     "say": "Each card is a real double-entry record, balanced to the cent by code, never by the model.",
+     "caption": "Each card is a real double-entry record, balanced to the cent by code, never by the model."
     }
    ]
   },
@@ -54,19 +48,42 @@
      "say": "Order what's low from Kudzai Wholesale."
     },
     {
+     "narrator": "n3",
+     "say": "The books server asks the supplier network's own MCP server for a quote.",
+     "caption": "The books server asks the supplier network's own MCP server for a quote.",
+     "overlap": true
+    },
+    {
      "assistant": "ask"
     },
     {
      "narrator": "n4",
-     "say": "Ordering is a purchase, so the server asks the owner first, through MCP elicitation. Nothing counts until she says yes.",
-     "caption": "Ordering is a purchase, so the server asks the owner first, through MCP elicitation. Nothing counts until she says yes."
+     "say": "The supplier can only send four candles, and nothing is ordered until Rudo says yes.",
+     "caption": "The supplier can only send four candles, and nothing is ordered until Rudo says yes."
     },
     {
      "owner": "o4b",
      "say": "Yes."
     },
     {
+     "narrator": "n4w",
+     "say": "Now the books server places the order with the supplier.",
+     "caption": "Now the books server places the order with the supplier.",
+     "overlap": true
+    },
+    {
      "assistant": true
+    },
+    {
+     "action": "trace"
+    },
+    {
+     "narrator": "n5",
+     "say": "Under the hood, this page is a real MCP client on the official TypeScript SDK, speaking protocol twenty twenty-five, eleven, twenty-five. The books server's own calls to the supplier, the quote and the order, appear as they happen.",
+     "caption": "Under the hood, this page is a real MCP client on the official TypeScript SDK, speaking protocol 2025-11-25. The books server's own calls to the supplier, the quote and the order, appear as they happen."
+    },
+    {
+     "action": "hood-off"
     }
    ]
   },
@@ -78,23 +95,13 @@
      "say": "Closing up. I counted fifty dollars in the till."
     },
     {
-     "assistant": true
-    }
-   ]
-  },
-  {
-   "id": "hood",
-   "beats": [
-    {
-     "action": "hood-on"
-    },
-    {
      "narrator": "n6",
-     "say": "This page is a real MCP client, on the official TypeScript SDK: protocol twenty twenty-five, eleven, twenty-five, over Streamable HTTP. The cards are MCP Apps the server ships, and every call is in this log.",
-     "caption": "This page is a real MCP client on the official TypeScript SDK: protocol 2025-11-25 over Streamable HTTP. The cards are MCP Apps the server ships, and every call is in this log."
+     "say": "The server checks her count against the books.",
+     "caption": "The server checks her count against the books.",
+     "overlap": true
     },
     {
-     "action": "hood-off"
+     "assistant": true
     }
    ]
   },
@@ -103,8 +110,8 @@
    "beats": [
     {
      "narrator": "n7",
-     "say": "Close the page and come back later. A new session, the same books.",
-     "caption": "Close the page and come back later: a new session, the same books.",
+     "say": "Close the page and come back: a new session on Amazon Bedrock AgentCore, and the same books, kept in DynamoDB.",
+     "caption": "Close the page and come back: a new session on Amazon Bedrock AgentCore, and the same books, kept in DynamoDB.",
      "overlap": true
     },
     {
@@ -120,20 +127,20 @@
    ]
   },
   {
-   "id": "aws",
+   "id": "device",
    "beats": [
     {
+     "action": "device"
+    },
+    {
+     "owner": "o9",
+     "say": "How are we doing today?"
+    },
+    {
      "narrator": "n8",
-     "say": "The same server runs on Amazon Bedrock AgentCore Runtime, with Amazon Cognito sign-in, and the books in DynamoDB.",
-     "caption": "The same server runs on Amazon Bedrock AgentCore Runtime, with Amazon Cognito sign-in and the books in DynamoDB.",
+     "say": "On the counter, it's just the screen and her voice.",
+     "caption": "On the counter, it's just the screen and her voice.",
      "overlap": true
-    },
-    {
-     "action": "aws"
-    },
-    {
-     "owner": "o8",
-     "say": "Paid five dollars for electricity."
     },
     {
      "assistant": true
@@ -148,8 +155,8 @@
     },
     {
      "narrator": "n9",
-     "say": "Imali AI has kept shop books in a chat since April. New for this hackathon: the MCP server, the Alexa plus experience, and hosting on AWS.",
-     "caption": "Imali AI has kept shop books in a chat since April. New for this hackathon: the MCP server, the Alexa+ experience and hosting on AWS."
+     "say": "Imali AI has kept shop books in a chat since April. New for this hackathon: two MCP servers on AWS, the supplier network, and this Alexa plus experience.",
+     "caption": "Imali AI has kept shop books in a chat since April. New for this hackathon: two MCP servers on AWS, the supplier network and this Alexa+ experience."
     }
    ]
   }
