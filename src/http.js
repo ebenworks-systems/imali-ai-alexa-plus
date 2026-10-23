@@ -69,6 +69,7 @@ export function shopFrom(req, url) {
 export function createApp({ store, env = process.env, log = (event, data) => console.log(JSON.stringify({ t: new Date().toISOString(), event, ...data })) } = {}) {
   const stateless = env.MCP_STATELESS === "1";
   const serveWeb = env.SERVE_WEB !== "0";
+  // On AgentCore Runtime the platform may hand an initialize request a session id of its own; the server adopts it.
   const onePerVm = env.AGENTCORE === "1";
   const sessions = new Map();
   const seen = new Map();
@@ -97,17 +98,12 @@ export function createApp({ store, env = process.env, log = (event, data) => con
         await server.connect(transport);
         return transport.handleRequest(req, res, body);
       }
-      let id = req.headers["mcp-session-id"];
-      if (id && !sessions.has(id) && onePerVm && sessions.size === 1) {
-        // On AgentCore each session has its own microVM, so the one session here is the caller's.
-        id = [...sessions.keys()][0];
-        req.headers["mcp-session-id"] = id;
-      }
+      const id = req.headers["mcp-session-id"];
       if (id && sessions.has(id)) {
         touch(id);
         return sessions.get(id).transport.handleRequest(req, res, body);
       }
-      if (!id || onePerVm) {
+      if (!id || (onePerVm && isInitializeRequest(body))) {
         if (!isInitializeRequest(body)) return send(res, 400, { jsonrpc: "2.0", error: { code: -32000, message: "Start with an initialize request" }, id: null });
         const shopId = shopFrom(req, url);
         const platformId = req.headers["mcp-session-id"];
@@ -136,7 +132,7 @@ export function createApp({ store, env = process.env, log = (event, data) => con
     if (req.method === "GET" || req.method === "DELETE") {
       if (stateless) return send(res, 405, "Method not allowed", { allow: "POST" });
       const id = req.headers["mcp-session-id"];
-      const session = sessions.get(id) ?? (onePerVm && sessions.size === 1 ? [...sessions.values()][0] : null);
+      const session = sessions.get(id);
       if (!session) return send(res, 404, { jsonrpc: "2.0", error: { code: -32001, message: "Session not found" }, id: null });
       if (id) touch(id);
       return session.transport.handleRequest(req, res);
