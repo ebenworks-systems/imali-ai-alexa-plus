@@ -191,8 +191,9 @@ Measured on 23 October 2026, from a workstation in Korea:
 - All 28 tests pass.
 - AgentCore in us-east-1, two runs on warm runtimes: single tool calls 0.46 to 1.01 s; a new session's `initialize`
   1.2 to 2.3 s; the whole reorder across both servers (quote, confirmation, order) 3.5 s. A cold start is about 7 s.
-- The hosted page, signed in as the judge, with the agent model (Claude Sonnet 5.5 through our model gateway): four
-  spoken requests in a row took 6.6 to 8.9 s each from request to spoken reply, and every reply passed the figures check.
+- The hosted page, signed in as the judge, with the agent model (Claude Sonnet 5.5 through our model gateway), two runs
+  of four requests: everyday requests took 6.5 to 8.2 s from request to spoken reply, the reorder through the supplier
+  9.6 to 10.4 s, and every reply passed the figures check.
 
 ## Repository map
 
