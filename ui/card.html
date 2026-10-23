@@ -59,7 +59,7 @@
   const notify = (method, params) => post({ method, params });
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   // "2026-10-24" as a person reads it: "Sat 24 Oct".
-  const day = (iso) => (/^\d{4}-\d\d-\d\d$/.test(iso || "") ? new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }) : iso);
+  const day = (iso, style = "short") => (/^\d{4}-\d\d-\d\d$/.test(iso || "") ? new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: style, day: "numeric", month: style, timeZone: "UTC" }) : iso);
   const LABEL = { sale: "Sale recorded", "stock-in": "Stock received", expense: "Running cost", "customer-payment": "Tab payment", "supplier-payment": "Supplier paid", "cash-count": "Till count", "day-summary": "Today so far", "day-close": "Day closed", tabs: "Customers' tabs", "purchase-order": "Purchase order", undo: "Entry removed", reset: "Demo reset" };
   const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
 
@@ -87,9 +87,9 @@
     else if (d.kind === "day-summary") {
       const till = d.till_short && d.till_short !== "$0.00" ? [["Till short", d.till_short]] : d.till_over && d.till_over !== "$0.00" ? [["Till over", d.till_over]] : [];
       if (d.stock_count && d.stock_count !== "$0.00") till.push([d.stock_count.startsWith("-") ? "Stock missing" : "Stock found", d.stock_count.replace(/^-/, "")]);
-      html = `${head(d, d.day)}<div class="amount">${esc(d.sales)}</div><div class="sub">sales today</div>${tiles([["Gross profit", d.gross_profit, true], ["Running costs", d.running_costs], ...till, [d.net.startsWith("-") ? "Down on the day" : "Up on the day", d.net.replace(/^-/, "")], ["Cash sales", d.cash_sales], ["Mobile money", d.mobile_sales], ["On credit", d.credit_sales], ["Till should hold", d.cash_in_till, true]])}`;
+      html = `${head(d, day(d.day, "long"))}<div class="amount">${esc(d.sales)}</div><div class="sub">sales today</div>${tiles([["Gross profit", d.gross_profit, true], ["Running costs", d.running_costs], ...till, [d.net.startsWith("-") ? "Down on the day" : "Up on the day", d.net.replace(/^-/, "")], ["Cash sales", d.cash_sales], ["Mobile money", d.mobile_sales], ["On credit", d.credit_sales], ["Till should hold", d.cash_in_till, true]])}`;
     }
-    else if (d.kind === "day-close") html = `${head(d, d.shop?.today)}${tiles([["Books expected", d.expected], ["You counted", d.counted], ["Difference", d.difference, d.difference !== "$0.00"]])}${tiles([["Sales", d.sales], ["Gross profit", d.gross_profit, true], ["Running costs", d.running_costs], ["Up on the day", d.net, true]])}${journal(d.entry)}`;
+    else if (d.kind === "day-close") html = `${head(d, day(d.shop?.today, "long"))}${tiles([["Books expected", d.expected], ["You counted", d.counted], ["Difference", d.difference, d.difference !== "$0.00"]])}${tiles([["Sales", d.sales], ["Gross profit", d.gross_profit, true], ["Running costs", d.running_costs], ["Up on the day", d.net, true]])}${journal(d.entry)}`;
     else if (d.kind === "tabs") html = `${head(d)}<div class="amount">${esc(d.total)}</div><div class="sub">owed to the shop</div><table><tbody>${(d.tabs.length ? d.tabs : [{ name: "Nobody", owes: "$0.00" }]).map((t) => `<tr><td>${esc(t.name)}</td><td class="n">${esc(t.owes)}</td></tr>`).join("")}</tbody></table>`;
     else if (d.kind === "purchase-order" && d.order) {
       const o = d.order;
