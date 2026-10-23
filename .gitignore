@@ -9,3 +9,4 @@ submission/*.mp4
 CLAUDE.local.md
 .claude/
 web/vendor/
+deploy/agentcore.out.json

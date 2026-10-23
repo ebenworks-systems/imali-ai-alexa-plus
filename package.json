@@ -19,7 +19,7 @@
     "zod": "^3.25.76"
   },
   "optionalDependencies": {
-    "@aws-sdk/client-dynamodb": "^3.700.0"
+    "@aws-sdk/client-dynamodb": "^3.1156.0"
   },
   "devDependencies": {
     "esbuild": "^0.25.0"

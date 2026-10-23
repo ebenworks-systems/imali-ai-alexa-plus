@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f3f0ee">
+<title>Imali AI for Alexa+ · simulated experience</title>
+<meta name="description" content="A shop owner runs her books by voice. Imali AI's MCP server keeps double-entry books in whole cents; this page is a real MCP client that simulates the Alexa+ experience.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="#top" aria-label="Imali AI for Alexa+">
+    <svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="17" fill="none" stroke="#cf4500" stroke-width="2.5" stroke-dasharray="80 27" stroke-linecap="round"/><circle cx="20" cy="20" r="7" fill="#f37338"/></svg>
+    <span><b>Imali AI</b><small>for Alexa+</small></span>
+  </a>
+  <div class="chips" aria-live="polite">
+    <span class="chip" id="chip-proto"><i></i>Connecting…</span>
+    <span class="chip quiet" id="chip-tools">MCP tools</span>
+    <span class="chip quiet" id="chip-endpoint">This computer</span>
+  </div>
+  <button class="ghost" id="open-settings" type="button" aria-haspopup="dialog">Settings</button>
+</header>
+
+<main class="stage" id="top">
+  <section class="lede">
+    <p class="eyebrow"><i></i>Simulated Alexa+ experience</p>
+    <h1>The shop's books, kept by voice.</h1>
+    <p class="lede-sub">Say what happened at the counter. Imali AI records it on its own MCP server as balanced double entry, and every figure you hear is read from those books.</p>
+  </section>
+
+  <section class="device" aria-label="Simulated Alexa+ screen">
+    <div class="screen" id="screen">
+      <div class="screen-top">
+        <span id="clock">--:--</span>
+        <span class="shop"><b id="shop-name">Rudo's Corner Shop</b><em>Invented demo shop</em></span>
+        <span class="state" id="state">Ready</span>
+      </div>
+      <p class="said" id="said" aria-live="polite"></p>
+      <p class="reply" id="reply" aria-live="polite">Try “Sold three bread and two cooking oil, cash.”</p>
+      <div class="cards" id="cards"></div>
+      <form class="confirm" id="confirm" hidden>
+        <p class="eyebrow"><i></i>Imali AI asks</p>
+        <p class="confirm-q" id="confirm-q"></p>
+        <div class="confirm-fields" id="confirm-fields"></div>
+        <div class="confirm-actions">
+          <button class="primary" type="submit" id="confirm-yes">Yes, confirm</button>
+          <button class="ghost" type="button" id="confirm-no">No</button>
+        </div>
+        <p class="confirm-hint">Or say “yes” or “no”.</p>
+      </form>
+      <div class="lightbar" id="lightbar" aria-hidden="true"><span></span></div>
+    </div>
+  </section>
+
+  <section class="controls">
+    <button class="mic" id="mic" type="button" aria-pressed="false" aria-label="Talk">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+    </button>
+    <form class="say" id="say">
+      <label class="sr" for="say-input">What would you say?</label>
+      <input id="say-input" autocomplete="off" placeholder="Or type what you'd say…" maxlength="300">
+      <button class="primary" type="submit">Say it</button>
+    </form>
+    <div class="suggest" id="suggest" aria-label="Things to try"></div>
+  </section>
+
+  <aside class="hood" aria-label="Under the hood">
+    <p class="eyebrow"><i></i>Under the hood</p>
+    <h2>A real MCP client</h2>
+    <dl class="facts">
+      <div><dt>Protocol</dt><dd id="f-proto">—</dd></div>
+      <div><dt>Transport</dt><dd>Streamable HTTP</dd></div>
+      <div><dt>Server</dt><dd id="f-server">—</dd></div>
+      <div><dt>Endpoint</dt><dd id="f-endpoint">—</dd></div>
+      <div><dt>Session</dt><dd id="f-session">—</dd></div>
+      <div><dt>Agent model</dt><dd id="f-model">—</dd></div>
+      <div><dt>Figures check</dt><dd id="f-guard">Waiting for a reply</dd></div>
+    </dl>
+    <ol class="traffic" id="traffic"></ol>
+  </aside>
+</main>
+
+<dialog class="settings" id="settings">
+  <form method="dialog" id="settings-form">
+    <h2>Settings</h2>
+    <p class="hint">Saved in this browser only. A key you enter here is sent with each request to the model endpoint you name, through this page's own server, and is never stored there.</p>
+    <fieldset>
+      <legend>MCP server</legend>
+      <label>Endpoint
+        <select id="s-endpoint"><option value="local">This computer (/mcp)</option><option value="aws">AWS: Amazon Bedrock AgentCore Runtime</option><option value="custom">Another URL</option></select>
+      </label>
+      <label>URL <input id="s-mcp-url" placeholder="https://…/mcp"></label>
+      <label>Shop <input id="s-shop" placeholder="your-shop" maxlength="40"></label>
+      <div class="row" id="aws-signin">
+        <label>AWS sign-in user <input id="s-aws-user" autocomplete="username"></label>
+        <label>Password <input id="s-aws-pass" type="password" autocomplete="current-password"></label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Agent model (any OpenAI-compatible endpoint)</legend>
+      <label>Base URL <input id="s-llm-base" placeholder="https://api.openai.com/v1"></label>
+      <div class="row">
+        <label>Model <input id="s-llm-model" placeholder="gpt-4.1-mini"></label>
+        <label>API key <input id="s-llm-key" type="password" autocomplete="off"></label>
+      </div>
+    </fieldset>
+    <label class="check"><input type="checkbox" id="s-voice" checked> Speak replies aloud</label>
+    <div class="settings-actions">
+      <button class="ghost" value="cancel" type="submit">Cancel</button>
+      <button class="primary" id="s-save" value="save" type="submit">Save and reconnect</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
