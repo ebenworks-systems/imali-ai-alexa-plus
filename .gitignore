@@ -12,3 +12,4 @@ web/vendor/
 deploy/agentcore.out.json
 submission/
 __pycache__/
+CLAUDE.md
