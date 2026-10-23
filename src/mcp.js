@@ -379,6 +379,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
         net: z.string(),
         till_short: z.string(),
         till_over: z.string(),
+        stock_count: z.string().describe("Stock count differences today: found on the shelf (plus) or missing (minus), at cost"),
         cash_in_till: z.string(),
         mobile_money: z.string(),
         entries: z.number(),
@@ -392,11 +393,15 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       withBooks((books) => {
         const s = L.daySummary(books);
         const b = L.balances(books);
-        const more = [s.expenses ? `running costs ${cents(s.expenses)}` : "", s.overshort > 0 ? `the till was short by ${cents(s.overshort)}` : s.overshort < 0 ? `the till was over by ${cents(-s.overshort)}` : ""].filter(Boolean);
+        const more = [
+          s.expenses ? `running costs ${cents(s.expenses)}` : "",
+          s.overshort > 0 ? `the till was short by ${cents(s.overshort)}` : s.overshort < 0 ? `the till was over by ${cents(-s.overshort)}` : "",
+          s.stockcount < 0 ? `stock found on the shelf added ${cents(-s.stockcount)}` : s.stockcount > 0 ? `stock missing from the shelf took off ${cents(s.stockcount)}` : "",
+        ].filter(Boolean);
         const speech = s.count
-          ? `Today you've sold ${cents(s.sales)}${s.credit ? `, ${cents(s.credit)} of it on credit` : ""}. Gross profit is ${cents(s.grossProfit)}${more.length || s.net !== s.grossProfit ? `${more.length ? `, ${listOf(more)}` : ""}, so you're ${s.net < 0 ? "down" : "up"} ${cents(Math.abs(s.net))}` : ""}. The till should hold ${cents(b.cash)}.`
+          ? `Today you've sold ${cents(s.sales)}${s.credit ? `, ${cents(s.credit)} of it on credit` : ""}. Gross profit is ${cents(s.grossProfit)}${more.length ? `, ${listOf(more)}, so you're ${s.net < 0 ? "down" : "up"} ${cents(Math.abs(s.net))}` : ""}. The till should hold ${cents(b.cash)}.`
           : `Nothing recorded yet today. The till should hold ${cents(b.cash)}.`;
-        return { out: result({ ok: true, kind: "day-summary", speech, day: s.day, sales: cents(s.sales), cash_sales: cents(s.cash), mobile_sales: cents(s.mobile), credit_sales: cents(s.credit), gross_profit: cents(s.grossProfit), running_costs: cents(s.expenses), net: cents(s.net), till_short: cents(Math.max(0, s.overshort)), till_over: cents(Math.max(0, -s.overshort)), cash_in_till: cents(b.cash), mobile_money: cents(b.mobile), entries: s.count, shop: shopView(books), warnings: [] }) };
+        return { out: result({ ok: true, kind: "day-summary", speech, day: s.day, sales: cents(s.sales), cash_sales: cents(s.cash), mobile_sales: cents(s.mobile), credit_sales: cents(s.credit), gross_profit: cents(s.grossProfit), running_costs: cents(s.expenses), net: cents(s.net), till_short: cents(Math.max(0, s.overshort)), till_over: cents(Math.max(0, -s.overshort)), stock_count: cents(-s.stockcount), cash_in_till: cents(b.cash), mobile_money: cents(b.mobile), entries: s.count, shop: shopView(books), warnings: [] }) };
       }),
   );
 

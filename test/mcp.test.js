@@ -230,6 +230,9 @@ describe("Imali AI MCP server", () => {
     assert.equal(eggs.qty, 0);
     const kinds = JSON.parse((await client.readResource({ uri: "imali-ai://books/journal" })).contents[0].text);
     assert.deepEqual(kinds.entries.slice(0, 2).map((e) => e.kind), ["sale", "stock-count"]);
+    const today = await call(client, "get_day_summary");
+    assert.equal(today.stock_count, "$4.40");
+    assert.match(today.speech, /stock found on the shelf added \$4\.40, so you're up/);
     assert.equal(kinds.trial_balance.balanced, true);
     // Undoing the sale takes its correction out with it.
     assert.equal((await call(client, "undo_last_entry", { confirm: true })).ok, true);
