@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createMcpServer } from "./mcp.js";
+import { relayChat } from "./relay.js";
 import { cleanShopId } from "./store.js";
 
 const WEB_DIR = fileURLToPath(new URL("../web/", import.meta.url));
@@ -151,31 +152,9 @@ export function createApp({ store, env = process.env, log = (event, data) => con
     if (calls.length >= Number(env.AGENT_MAX_PER_MINUTE || 30)) return send(res, 429, { error: "Too many requests; wait a minute." });
     calls.push(now);
     const body = await readJson(req);
-    if (!body || !Array.isArray(body.messages)) return send(res, 400, { error: "Expected messages" });
-    // A caller's own endpoint is used only with the caller's own key: this server's key never leaves for an
-    // address the caller names.
-    const own = Boolean(req.headers["x-llm-key"]);
-    if (req.headers["x-llm-base-url"] && !own) return send(res, 400, { error: "Give your own API key with your own model endpoint." });
-    const base = String((own && req.headers["x-llm-base-url"]) || env.LLM_BASE_URL || "https://llm.ebenworks.co/v1").replace(/\/+$/, "");
-    const key = own ? req.headers["x-llm-key"] : env.LLM_API_KEY;
-    const model = (own && req.headers["x-llm-model"]) || env.LLM_MODEL || "sonnet";
-    if (!key) return send(res, 503, { error: "No model key: set LLM_API_KEY, or add your own endpoint and key in the simulator's settings." });
-    const started = Date.now();
-    const upstream = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, messages: body.messages.slice(-40), tools: body.tools, tool_choice: body.tools?.length ? "auto" : undefined, max_tokens: 700, temperature: 0.2 }),
-      signal: AbortSignal.timeout(45_000),
-    }).catch((err) => ({ ok: false, status: 502, json: async () => ({ error: String(err.message || err) }), headers: new Headers() }));
-    const data = await upstream.json().catch(() => ({}));
-    const ms = Date.now() - started;
-    if (!upstream.ok) {
-      log("model-error", { status: upstream.status, ms });
-      return send(res, 502, { error: `The model endpoint answered ${upstream.status}.` });
-    }
-    const provider = upstream.headers.get("x-njere-provider") || "";
-    log("model", { model, provider, ms, tool_calls: data.choices?.[0]?.message?.tool_calls?.length || 0 });
-    send(res, 200, { message: data.choices?.[0]?.message ?? { role: "assistant", content: "" }, model: data.model || model, provider, ms });
+    const out = await relayChat({ body, headers: req.headers, env });
+    if (out.log) log(out.status === 200 ? "model" : "model-error", out.log);
+    send(res, out.status, out.json);
   }
 
   async function handleStatic(req, res, url) {

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": "web",
+  "functions": { "api/agent/chat.js": { "maxDuration": 60 } },
+  "rewrites": [{ "source": "/agent/chat", "destination": "/api/agent/chat" }],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(self), geolocation=()" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Content-Security-Policy-Report-Only", "value": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://cognito-idp.us-east-1.amazonaws.com https://bedrock-agentcore.us-east-1.amazonaws.com; font-src 'self'; frame-src 'self' blob: data:; frame-ancestors 'none'" }
+      ]
+    }
+  ],
+  "regions": ["iad1"]
+}

@@ -227,3 +227,12 @@ body.film .hood h2 { font-size: 21px; margin: 8px 0 10px; }
 body.film .facts div { padding: 5px 0; }
 body.film .traffic { max-height: calc(100vh - 440px); }
 body.film .hood.lit { box-shadow: 0 0 0 4px var(--carrot), var(--shadow); transition: box-shadow 0.4s var(--ease); }
+
+/* ---- device view: the counter screen alone, as an Echo Show would hold it ---- */
+body.device .lede, body.device .hood { display: none; }
+body.device .stage { grid-template-columns: minmax(0, 1fr); grid-template-areas: "device" "controls"; max-width: 1100px; padding-top: 28px; }
+body.device .screen { height: min(72vh, 720px); }
+body.device .reply { font-size: clamp(28px, 3vw, 38px); }
+.traffic li code { min-width: 0; }
+.traffic li small { white-space: normal; text-align: right; max-width: 11em; }
+@media (max-width: 560px) { #toggle-view { display: none; } }

@@ -22,6 +22,7 @@ let history = [];
 let busy = false;
 let lastInputWasVoice = false;
 let pendingConfirm = null;
+let awsAccessToken = "";
 const uiCache = new Map();
 
 // ---- small helpers ---------------------------------------------------------------------------
@@ -71,7 +72,8 @@ async function awsToken() {
   });
   const data = await res.json();
   if (!data.AuthenticationResult) throw new Error("The AWS sign-in was refused. Check the user and password in Settings.");
-  return data.AuthenticationResult.AccessToken;
+  awsAccessToken = data.AuthenticationResult.AccessToken;
+  return awsAccessToken;
 }
 
 async function connect() {
@@ -248,8 +250,9 @@ async function showCard(name, args, result) {
 
 // ---- calling tools ---------------------------------------------------------------------------
 
-async function runTool(name, args) {
-  const result = await client.callTool({ name, arguments: args });
+// Each call carries a request id in _meta, so a retry or a double tap is recorded once by the server.
+async function runTool(name, args, requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`) {
+  const result = await client.callTool({ name, arguments: args, _meta: { "io.ebenworks.imali/request-id": requestId } });
   await showCard(name, args, result).catch((err) => logTraffic("←", "view failed", String(err.message || err)));
   return result;
 }
@@ -266,6 +269,8 @@ Speak like a calm, quick shop assistant. When a tool's "speech" line answers the
 
 function modelHeaders() {
   const h = { "content-type": "application/json" };
+  // The hosted page's relay answers only a caller signed in to the same pool as the MCP server.
+  if (config.hosted && awsAccessToken) h.authorization = `Bearer ${awsAccessToken}`;
   if (settings.llmKey) {
     h["x-llm-key"] = settings.llmKey;
     if (settings.llmBase) h["x-llm-base-url"] = settings.llmBase;
@@ -276,12 +281,24 @@ function modelHeaders() {
 
 async function askModel() {
   const t0 = performance.now();
-  const res = await fetch("agent/chat", { method: "POST", headers: modelHeaders(), body: JSON.stringify({ messages: [{ role: "system", content: systemPrompt() }, ...history], tools: modelTools }) });
+  const post = () => fetch("agent/chat", { method: "POST", headers: modelHeaders(), body: JSON.stringify({ messages: [{ role: "system", content: systemPrompt() }, ...history], tools: modelTools }) });
+  let res = await post();
+  if (res.status === 401 && config.hosted && settings.awsUser) {
+    await awsToken();
+    res = await post();
+  }
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `The model relay answered ${res.status}`);
-  const label = settings.llmKey ? `${settings.llmModel || "your model"} (your endpoint)` : `${data.model}${data.provider ? ` · Njere ${data.provider}` : ""}`;
+  const label = settings.llmKey ? `${settings.llmModel || "your model"} (your endpoint)` : `${prettyModel(data.model)}${data.via ? ` · ${data.via}` : ""}`;
   $("f-model").textContent = `${label} · ${((performance.now() - t0) / 1000).toFixed(1)} s`;
   return data.message;
+}
+
+function prettyModel(id = "") {
+  const m = String(id).match(/^claude-(\w+)-(\d+)-(\d+)/);
+  if (m) return `Claude ${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}.${m[3]}`;
+  if (/nova/i.test(id)) return `Amazon ${id.replace(/^.*?(nova[\w.-]*).*$/i, "$1").replace(/-v\d.*$/, "").replace(/nova-?/i, "Nova ")}`;
+  return id || "the agent model";
 }
 
 // Every figure in a reply must appear in the owner's words or in what the tools returned this turn.
@@ -306,6 +323,7 @@ function guardFigures(reply, owner, results) {
 
 async function turn(text) {
   if (busy || !text.trim()) return;
+  if (!modelAvailable()) return guidedTurn(text);
   busy = true;
   els.said.textContent = `“${text}”`;
   els.reply.textContent = "";
@@ -328,14 +346,15 @@ async function turn(text) {
         } catch {
           /* the server will ask for what is missing */
         }
-        const result = await runTool(call.function.name, args);
+        const result = await runTool(call.function.name, args, call.id);
         results.push(result);
         history.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result.structuredContent ?? result.content) });
       }
     }
   } catch (err) {
-    say(String(err.message || err));
-    logTraffic("←", "error", String(err.message || err).slice(0, 60));
+    setState("idle", "Ready");
+    say(`Sorry, that didn't go through: ${String(err.message || err)}`);
+    logTraffic("←", "error", "see the reply", "ask");
   } finally {
     history = history.slice(-30);
     while (history.length && history[0].role !== "user") history.shift();
@@ -411,16 +430,44 @@ function listen() {
 
 // ---- wiring ----------------------------------------------------------------------------------
 
+// Each suggestion also names the tool call it stands for, so the page still works with no model at all
+// (guided mode): tapping it calls that MCP tool directly and says the tool's own line.
 const SUGGESTIONS = [
-  "Sold three bread and two cooking oil, cash",
-  "Mai Tendai took two sugar and a bag of maize meal on credit",
-  "Paid five dollars for electricity",
-  "How are we doing today?",
-  "What's running low?",
-  "Order what's low from Kudzai Wholesale",
-  "Who owes me money?",
-  "Closing up. I counted fifty dollars in the till",
+  { text: "Sold three bread and two cooking oil, cash", tool: "record_sale", args: { items: [{ item: "bread", qty: 3 }, { item: "cooking oil", qty: 2 }], payment: "cash" } },
+  { text: "Mai Tendai took two sugar and a bag of maize meal on credit", tool: "record_sale", args: { items: [{ item: "sugar", qty: 2 }, { item: "maize meal", qty: 1 }], payment: "credit", customer: "Mai Tendai" } },
+  { text: "Paid five dollars for electricity", tool: "record_expense", args: { amount: 5, category: "electricity", payment: "cash" } },
+  { text: "How are we doing today?", tool: "get_day_summary", args: {} },
+  { text: "What's running low?", tool: "get_stock", args: {} },
+  { text: "Order what's low from Kudzai Wholesale", tool: "reorder_stock", args: { supplier: "Kudzai Wholesale" } },
+  { text: "Who owes me money?", tool: "get_customer_tabs", args: {} },
+  { text: "Closing up. I counted fifty dollars in the till", tool: "close_day", args: { counted_cash: 50 } },
 ];
+
+const modelAvailable = () => Boolean(config.model?.relay || settings.llmKey);
+const plain = (t) => String(t).toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+
+async function guidedTurn(text) {
+  const pick = SUGGESTIONS.find((x) => plain(x.text) === plain(text));
+  if (!pick) {
+    say("There's no agent model set up here, so I can only run the suggestions below. Add a model under Settings to talk freely.");
+    return;
+  }
+  busy = true;
+  els.said.textContent = `“${text}”`;
+  els.reply.textContent = "";
+  setState("thinking");
+  try {
+    const out = await runTool(pick.tool, pick.args);
+    $("f-model").textContent = "None: guided mode calls the tool directly";
+    $("f-guard").textContent = "Not needed: the reply is the tool's own line";
+    say(out.structuredContent?.ok === false ? out.structuredContent.question : out.structuredContent?.speech || "Done.");
+  } catch (err) {
+    setState("idle", "Ready");
+    say(`Sorry, that didn't go through: ${String(err.message || err)}`);
+  } finally {
+    busy = false;
+  }
+}
 
 function fillSettings() {
   $("s-endpoint").value = settings.endpoint;
@@ -443,10 +490,10 @@ async function main() {
   for (const s of SUGGESTIONS) {
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = s;
+    b.textContent = s.text;
     b.onclick = () => {
       lastInputWasVoice = false;
-      turn(s);
+      turn(s.text);
     };
     $("suggest").append(b);
   }
@@ -485,7 +532,30 @@ async function main() {
     await connect().catch(showError);
   });
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => {};
-  if (!config.model?.relay && !settings.llmKey) els.reply.textContent = "Add an OpenAI-compatible model endpoint and key in Settings to talk to the agent. The MCP server is already connected.";
+  if (!modelAvailable()) {
+    els.reply.textContent = "No model key? Tap a suggestion: each one calls its MCP tool directly. Add a model under Settings to talk freely.";
+    $("f-model").textContent = "None yet: guided mode (add one under Settings)";
+  }
+  $("toggle-view").onclick = () => {
+    const on = document.body.classList.toggle("device");
+    scrollTo({ top: 0, behavior: "smooth" });
+    $("toggle-view").textContent = on ? "Developer view" : "Device view";
+    $("toggle-view").setAttribute("aria-pressed", String(on));
+  };
+  if (config.hosted) {
+    // The hosted copy has no MCP server of its own: it talks to the one on AgentCore, after the judge signs in.
+    settings.endpoint = "aws";
+    document.querySelector('#s-endpoint option[value="local"]')?.remove();
+    $("signin-hint").hidden = false;
+    if (!settings.awsUser || !settings.awsPass) {
+      fillSettings();
+      setState("idle", "Sign in");
+      chip("chip-proto", "Sign in to connect", false);
+      els.reply.textContent = "Sign in with the judge account from the testing instructions to connect to the server on AWS.";
+      $("settings").showModal();
+      return;
+    }
+  }
   await connect().catch(showError);
 }
 
