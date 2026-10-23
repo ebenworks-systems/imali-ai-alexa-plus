@@ -60,13 +60,26 @@ function askBack(books, kind, question) {
   return result({ ok: false, kind, question, speech: question, shop: shopView(books), warnings: [] });
 }
 
+// How an owner says an item: "bread", "cooking oil", not "Bread loaf" or "Cooking oil 2 L".
+function spoken(item) {
+  return item?.aliases?.[0] || item?.name?.toLowerCase() || "item";
+}
+
+function listOf(parts) {
+  return parts.length < 2 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+function itemsSaid(books, moves) {
+  return listOf(moves.map((m) => `${L.fmtQty(Math.abs(m.qty))} ${spoken(books.items[m.item])}`));
+}
+
 function levelsLine(books, entry) {
   const levels = L.stockLevels(books);
   const low = (entry.stock || [])
     .map((m) => books.items[m.item])
     .filter((it, i, all) => it && all.indexOf(it) === i && levels[it.id] <= it.reorderAt)
-    .map((it) => `${it.name} is down to ${L.fmtQty(levels[it.id])}`);
-  return low.length ? ` ${low.join(", ")}.` : "";
+    .map((it) => `${spoken(it)[0].toUpperCase()}${spoken(it).slice(1)} is down to ${L.fmtQty(levels[it.id])}`);
+  return low.length ? ` ${low.join(". ")}.` : "";
 }
 
 // ---- the server ------------------------------------------------------------------------------
@@ -166,7 +179,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       amount_received: z.number().positive().optional().describe("Only if the owner said the total they took"),
     },
     L.buildSale,
-    (e) => `Recorded: ${e.memo.replace(/^Sold /, "").replace(/ × /g, " ")}, ${cents(e.amount)}.`,
+    (e, after) => `Got it: ${itemsSaid(after, e.stock)}, ${e.method === "credit" ? `on credit to ${e.party}` : e.method === "mobile" ? "mobile money" : "cash"}, ${cents(e.amount)}.`,
   );
 
   recordTool(
@@ -191,7 +204,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       if (built.ok && order) built.entry.order = order.id;
       return built;
     },
-    (e) => `Stock in from ${e.party}: ${e.memo.replace(/^Stock in: /, "").replace(/, (on account|paid).*$/, "").replace(/ × /g, " ")}, ${cents(e.amount)}${e.method === "credit" ? ", owed to them" : ` paid ${e.method === "mobile" ? "by mobile money" : "in cash"}`}.`,
+    (e, after) => `Booked in from ${e.party}: ${itemsSaid(after, e.stock)}, ${cents(e.amount)}${e.method === "credit" ? ", owed to them" : `, paid ${e.method === "mobile" ? "by mobile money" : "in cash"}`}.`,
   );
 
   recordTool(
@@ -328,9 +341,9 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
           if (!it) return { out: askBack(books, "stock", `I don't have "${item}" in your stock list. Which item is it?`) };
           rows = rows.filter((r) => r.id === it.id);
           const r = rows[0];
-          speech = `You have ${L.fmtQty(r.qty)} ${r.name} left${r.low ? ", at its reorder level" : ""}. ${r.sold_7_days} sold in the last seven days.`;
+          speech = `You have ${L.fmtQty(r.qty)} ${spoken(it)} left${r.low ? ", at its reorder level" : ""}. ${r.sold_7_days} sold in the last seven days.`;
         } else {
-          speech = low.length ? `${low.length} ${low.length === 1 ? "item is" : "items are"} at the reorder level: ${low.map((r) => `${r.name} with ${L.fmtQty(r.qty)}`).join(", ")}.` : "Everything is above its reorder level.";
+          speech = low.length ? `${low.length} ${low.length === 1 ? "item is" : "items are"} at the reorder level: ${listOf(low.map((r) => `${spoken(books.items[r.id])} with ${L.fmtQty(r.qty)} left`))}.` : "Everything is above its reorder level.";
         }
         return { out: result({ ok: true, kind: "stock", speech, items: rows, low_count: low.length, shop: shopView(books), warnings: [] }) };
       }),
@@ -354,7 +367,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
         if (!c.ok) return { out: askBack(books, "day-close", c.question) };
         const s = c.summary;
         const diffLine = c.diff === 0 ? "The till matches the books to the cent." : `The till is ${c.diff < 0 ? "short" : "over"} by ${cents(Math.abs(c.diff))}; I've recorded it.`;
-        const speech = `${diffLine} Today: sales ${cents(s.sales)}, gross profit ${cents(s.grossProfit)}, running costs ${cents(s.expenses)}, so you're up ${cents(s.net)}.`;
+        const speech = `${diffLine} Today: sales ${cents(s.sales)}, gross profit ${cents(s.grossProfit)}${s.expenses ? `, running costs ${cents(s.expenses)}` : ""}${s.overshort ? `, till ${s.overshort > 0 ? "short" : "over"} ${cents(Math.abs(s.overshort))}` : ""}, so you're ${s.net < 0 ? "down" : "up"} ${cents(Math.abs(s.net))}.`;
         const after = { ...c.books, closes: [...(c.books.closes || []), { day: books.today, at: books.now, expected: c.expected, counted: c.counted, diff: c.diff }] };
         return {
           books: after,
@@ -389,7 +402,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       });
       if (!drafted.d.ok) return askBack(drafted.books, "purchase-order", drafted.d.question);
       const order = drafted.d.order;
-      const summary = order.lines.map((l) => `${L.fmtQty(l.qty)} ${l.name}`).join(", ");
+      const summary = itemsSaid(drafted.books, order.lines);
 
       const caps = server.server.getClientCapabilities();
       let answer = null;
@@ -459,7 +472,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
         if (!order || order.status !== "draft") return { out: askBack(books, "purchase-order", ref ? `I can't find a draft order ${ref}. Which order do you mean?` : "There's no draft order waiting. What would you like to order?") };
         const done = { ...order, status: "confirmed", confirmedAt: books.now, payment };
         const after = L.addOrder(books, done);
-        const summary = done.lines.map((l) => `${L.fmtQty(l.qty)} ${l.name}`).join(", ");
+        const summary = itemsSaid(books, done.lines);
         return { books: after, out: result({ ok: true, kind: "purchase-order", speech: `Order ${done.number} to ${done.supplier} is confirmed: ${summary}, about ${cents(done.total)}.`, order: orderView(done), confirmed_by: "owner, by voice", shop: shopView(after), warnings: [] }) };
       }),
   );

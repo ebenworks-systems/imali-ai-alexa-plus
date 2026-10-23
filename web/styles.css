@@ -98,7 +98,7 @@ button { cursor: pointer; touch-action: manipulation; }
 /* ---- the device ---- */
 .device { grid-area: device; }
 .screen {
-  position: relative; overflow: hidden; min-height: 560px; padding: 24px 28px 34px;
+  position: relative; overflow: hidden; height: 680px; padding: 24px 28px 34px; display: flex; flex-direction: column;
   background: linear-gradient(180deg, var(--white), var(--paper));
   border: 10px solid #e9e4df; border-radius: 40px; box-shadow: var(--shadow), inset 0 0 0 1px rgba(20, 20, 19, 0.03);
 }
@@ -110,7 +110,8 @@ button { cursor: pointer; touch-action: manipulation; }
 .said { min-height: 24px; margin: 22px 0 4px; font-size: 17px; color: var(--slate); }
 .said:not(:empty)::before { content: "You said  "; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dust); }
 .reply { margin: 0 0 20px; font-size: clamp(24px, 2.6vw, 32px); font-weight: 500; letter-spacing: -0.02em; line-height: 1.18; max-width: 30ch; text-wrap: pretty; }
-.cards { display: grid; gap: 14px; }
+.cards { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: grid; align-content: start; gap: 14px; margin: 0 -6px; padding: 0 6px; }
+.cards::-webkit-scrollbar { display: none; }
 .cards iframe { width: 100%; border: 0; display: block; height: 120px; background: transparent; animation: rise 0.5s var(--ease) both; transition: height 0.25s var(--ease); }
 @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
 
@@ -201,7 +202,7 @@ button { cursor: pointer; touch-action: manipulation; }
   .stage { width: calc(100% - 24px); }
   .lede h1 { font-size: 40px; }
   .lede-sub { font-size: 16px; }
-  .screen { min-height: 480px; padding: 18px 16px 28px; border-width: 6px; border-radius: 30px; }
+  .screen { height: 640px; padding: 18px 16px 28px; border-width: 6px; border-radius: 30px; }
   .reply { font-size: 23px; }
   .controls { grid-template-columns: 1fr; justify-items: center; }
   .say { width: 100%; }
