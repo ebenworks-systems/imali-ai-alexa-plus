@@ -71,6 +71,19 @@ function listOf(parts) {
   return parts.length < 2 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }
 
+// How a person says a delivery date: "today", "tomorrow, Saturday", "on Monday" within the week, else "on Monday
+// 2 November". Dates are shop days (YYYY-MM-DD).
+function daySaid(iso, today) {
+  if (!/^\d{4}-\d\d-\d\d$/.test(iso || "")) return iso ? `on ${iso}` : "soon";
+  const d = new Date(`${iso}T12:00:00Z`);
+  const days = Math.round((d - new Date(`${today}T12:00:00Z`)) / 86_400_000);
+  const weekday = d.toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" });
+  if (days === 0) return "today";
+  if (days === 1) return `tomorrow, ${weekday}`;
+  if (days > 1 && days < 7) return `on ${weekday}`;
+  return `on ${d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}`;
+}
+
 function itemsSaid(books, moves) {
   return listOf(moves.map((m) => `${L.fmtQty(Math.abs(m.qty))} ${spoken(books.items[m.item])}`));
 }
@@ -182,29 +195,48 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
   // The supplier network is another MCP server. This server is its client: it asks for a quote before the owner
   // confirms an order, and places the order there after the yes. If the supplier cannot be reached, the order
   // stays in the books only, and the owner is told so.
+  // Each call to the supplier network goes into a trace (what was asked, what came back, how long it took). The
+  // client hears each step as it happens, as a log notification on the same request, and the tool's result
+  // carries the whole trace in its _meta, so a client can show the orchestration.
   const within = (p, ms) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error("timeout")), ms))]);
-  async function withSupplier(extra, fn) {
+  function step(extra, trace, entry) {
+    trace.push(entry);
+    extra?.sendNotification?.({ method: "notifications/message", params: { level: "info", logger: "supplier-network", data: entry } }).catch(() => {});
+  }
+  async function withSupplier(extra, trace, fn) {
     const url = supplier?.url?.();
     if (!url) return null;
     const client = new Client({ name: "imali-ai-shop-books", version: SERVER_INFO.version });
     const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: supplier.headers?.(extra) ?? {} } });
+    let t0 = Date.now();
     try {
       await within(client.connect(transport), 20_000);
+      step(extra, trace, { server: "supplier network", method: "initialize", ms: Date.now() - t0, ok: true, response: { protocolVersion: transport.protocolVersion, serverInfo: client.getServerVersion() } });
+      t0 = Date.now();
       return await within(fn(client), 20_000);
     } catch (err) {
+      step(extra, trace, { server: "supplier network", method: "unreachable", ms: Date.now() - t0, ok: false, response: { error: String(err?.message || err) } });
       log("supplier-unreachable", { shopId, message: String(err?.message || err) });
       return null;
     } finally {
       client.close().catch(() => {});
     }
   }
+  async function callSupplier(extra, client, trace, tool, args) {
+    const t0 = Date.now();
+    const out = (await client.callTool({ name: tool, arguments: args })).structuredContent;
+    step(extra, trace, { server: "supplier network", method: "tools/call", tool, ms: Date.now() - t0, ok: Boolean(out?.ok), request: args, response: out });
+    return out;
+  }
   const supplierLines = (order) => order.lines.map((l) => ({ item: l.item, qty: l.qty, name: l.name }));
-  async function supplierQuote(extra, order) {
-    return withSupplier(extra, async (c) => (await c.callTool({ name: "quote_order", arguments: { supplier: order.supplier, lines: supplierLines(order) } })).structuredContent);
+  async function supplierQuote(extra, order, trace) {
+    return withSupplier(extra, trace, (c) => callSupplier(extra, c, trace, "quote_order", { supplier: order.supplier, lines: supplierLines(order) }));
   }
-  async function supplierPlace(extra, order, payment) {
-    return withSupplier(extra, async (c) => (await c.callTool({ name: "place_order", arguments: { supplier: order.supplier, lines: supplierLines(order), buyer_reference: order.number, payment } })).structuredContent);
+  async function supplierPlace(extra, order, payment, trace) {
+    return withSupplier(extra, trace, (c) => callSupplier(extra, c, trace, "place_order", { supplier: order.supplier, lines: supplierLines(order), buyer_reference: order.number, payment }));
   }
+  const TRACE = "io.ebenworks.imali/trace";
+  const traced = (out, trace) => (trace.length ? { ...out, _meta: { ...(out._meta || {}), [TRACE]: trace } } : out);
   // A quote replaces the books' estimate with the supplier's prices and what it can actually send.
   function withQuote(order, q) {
     const lines = order.lines
@@ -231,11 +263,17 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
           if (!built.ok) return { out: askBack(books, name, built.question) };
           if (!L.isBalanced(built.entry)) return { out: askBack(books, name, "That entry would not balance, so I left the books as they were. Can you say it again?") };
           if (requestId) built.entry.requestId = requestId;
-          let after = L.applyEntry(books, built.entry);
+          let after = books;
+          for (const pre of built.before || []) {
+            if (!L.isBalanced(pre)) return { out: askBack(books, name, "That entry would not balance, so I left the books as they were. Can you say it again?") };
+            after = L.applyEntry(after, pre);
+          }
+          after = L.applyEntry(after, built.entry);
           const filled = built.entry.order ? L.findOrder(after, built.entry.order) : null;
           if (filled) after = L.addOrder(after, { ...filled, status: "received", receivedAt: books.now });
           log("entry", { shopId, kind: built.entry.kind, amount: built.entry.amount });
-          const speech = speak(built.entry, after, args) + levelsLine(after, built.entry);
+          const counted = (built.before || []).map((p) => ` Your shelf had ${itemsSaid(after, p.stock)} more than the books showed, so I added ${p.stock.length > 1 || p.stock[0].qty !== 1 ? "them" : "it"} first.`).join("");
+          const speech = speak(built.entry, after, args) + counted + levelsLine(after, built.entry);
           return { books: after, out: result({ ok: true, kind: built.entry.kind, speech, entry: entryView(built.entry), warnings: built.warnings, shop: shopView(after) }) };
         }),
     );
@@ -339,6 +377,8 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
         gross_profit: z.string(),
         running_costs: z.string(),
         net: z.string(),
+        till_short: z.string(),
+        till_over: z.string(),
         cash_in_till: z.string(),
         mobile_money: z.string(),
         entries: z.number(),
@@ -352,10 +392,11 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       withBooks((books) => {
         const s = L.daySummary(books);
         const b = L.balances(books);
+        const more = [s.expenses ? `running costs ${cents(s.expenses)}` : "", s.overshort > 0 ? `the till was short by ${cents(s.overshort)}` : s.overshort < 0 ? `the till was over by ${cents(-s.overshort)}` : ""].filter(Boolean);
         const speech = s.count
-          ? `Today you've sold ${cents(s.sales)}${s.credit ? `, ${cents(s.credit)} of it on credit` : ""}. Gross profit is ${cents(s.grossProfit)}${s.expenses ? ` and running costs ${cents(s.expenses)}, so you're up ${cents(s.net)}` : ""}. The till should hold ${cents(b.cash)}.`
+          ? `Today you've sold ${cents(s.sales)}${s.credit ? `, ${cents(s.credit)} of it on credit` : ""}. Gross profit is ${cents(s.grossProfit)}${more.length || s.net !== s.grossProfit ? `${more.length ? `, ${listOf(more)}` : ""}, so you're ${s.net < 0 ? "down" : "up"} ${cents(Math.abs(s.net))}` : ""}. The till should hold ${cents(b.cash)}.`
           : `Nothing recorded yet today. The till should hold ${cents(b.cash)}.`;
-        return { out: result({ ok: true, kind: "day-summary", speech, day: s.day, sales: cents(s.sales), cash_sales: cents(s.cash), mobile_sales: cents(s.mobile), credit_sales: cents(s.credit), gross_profit: cents(s.grossProfit), running_costs: cents(s.expenses), net: cents(s.net), cash_in_till: cents(b.cash), mobile_money: cents(b.mobile), entries: s.count, shop: shopView(books), warnings: [] }) };
+        return { out: result({ ok: true, kind: "day-summary", speech, day: s.day, sales: cents(s.sales), cash_sales: cents(s.cash), mobile_sales: cents(s.mobile), credit_sales: cents(s.credit), gross_profit: cents(s.grossProfit), running_costs: cents(s.expenses), net: cents(s.net), till_short: cents(Math.max(0, s.overshort)), till_over: cents(Math.max(0, -s.overshort)), cash_in_till: cents(b.cash), mobile_money: cents(b.mobile), entries: s.count, shop: shopView(books), warnings: [] }) };
       }),
   );
 
@@ -465,7 +506,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
         items: z.array(z.object({ item: z.string().min(1).max(60), qty: z.number().positive().max(10000).optional() })).max(20).optional().describe("Leave out to reorder everything at its reorder level"),
       },
       outputSchema: OrderOut,
-      annotations: { title: "Reorder from a supplier", ...WRITE },
+      annotations: { title: "Reorder from a supplier", ...WRITE, openWorldHint: true },
       _meta: cardMeta,
     },
     async (args, extra) => {
@@ -477,21 +518,22 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       });
       if (!drafted.d.ok) return askBack(drafted.books, "purchase-order", drafted.d.question);
       let order = drafted.d.order;
+      const trace = [];
 
       // 2. Ask the supplier's own system for a quote: its prices, what it can send, and when.
-      const q = await supplierQuote(extra, order);
+      const q = await supplierQuote(extra, order, trace);
       if (q?.ok) {
         order = withQuote(order, q);
         if (!order.lines.length) {
           await withBooks((books) => ({ books: L.addOrder(books, { ...order, status: "cancelled" }), out: null }));
-          return askBack(drafted.books, "purchase-order", `${order.supplier} has none of those items in stock right now. Shall I try another supplier?`);
+          return traced(askBack(drafted.books, "purchase-order", `${order.supplier} has none of those items in stock right now. Shall I try another supplier?`), trace);
         }
         await withBooks((books) => ({ books: L.addOrder(books, order), out: null }));
       }
       const summary = itemsSaid(drafted.books, order.lines);
       const shortNote = order.quote?.short?.length ? ` They can't send all of it: ${order.quote.short.join("; ")}.` : "";
       const message = order.quote
-        ? `${order.supplier} can deliver ${summary} on ${order.quote.deliveryDate} for ${cents(order.total)}.${shortNote} Place order ${order.number}?`
+        ? `${order.supplier} can deliver ${summary} ${daySaid(order.quote.deliveryDate, drafted.books.today)} for ${cents(order.total)}.${shortNote} Place order ${order.number}?`
         : `Send order ${order.number} to ${order.supplier}? ${summary}. Estimated cost ${cents(order.total)}.`;
 
       // 3. The owner confirms through elicitation; nothing is ordered before the yes.
@@ -507,7 +549,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
                 requestedSchema: {
                   type: "object",
                   properties: {
-                    confirm: { type: "boolean", title: `Confirm ${order.number}`, description: "Nothing counts until you confirm", default: true },
+                    confirm: { type: "boolean", title: `Confirm ${order.number}`, description: "Nothing counts until you confirm", default: false },
                     payment: { type: "string", title: "How will you pay?", oneOf: [{ const: "on_account", title: "On account with the supplier" }, { const: "cash", title: "Cash on delivery" }, { const: "mobile", title: "Mobile money on delivery" }], default: "on_account" },
                   },
                   required: ["confirm"],
@@ -525,9 +567,9 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
 
       if (!answer) {
         const speech = order.quote
-          ? `${order.supplier} can deliver ${summary} on ${order.quote.deliveryDate} for ${cents(order.total)}.${shortNote} Say yes to place order ${order.number}.`
+          ? `${order.supplier} can deliver ${summary} ${daySaid(order.quote.deliveryDate, drafted.books.today)} for ${cents(order.total)}.${shortNote} Say yes to place order ${order.number}.`
           : `I've drafted ${order.number} to ${order.supplier}: ${summary}, about ${cents(order.total)}. Say yes to confirm it.`;
-        return result({ ok: true, kind: "purchase-order", speech, order: orderView(order), shop: shopView(drafted.books), warnings: ["Waiting for the owner to confirm: call confirm_purchase_order once they say yes."] });
+        return traced(result({ ok: true, kind: "purchase-order", speech, order: orderView(order), shop: shopView(drafted.books), warnings: ["Waiting for the owner to confirm: call confirm_purchase_order once they say yes."] }), trace);
       }
       if (!(answer.action === "accept" && answer.content?.confirm === true)) {
         return withBooks((books) => {
@@ -535,18 +577,18 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
           const kept = { ...(L.findOrder(books, order.id) ?? order), status };
           const after = L.addOrder(books, kept);
           const speech = status === "cancelled" ? `Okay, I've cancelled ${kept.number}. Nothing was ordered.` : `${kept.number} stays a draft. Nothing is ordered until you confirm it.`;
-          return { books: after, out: result({ ok: true, kind: "purchase-order", speech, order: orderView(kept), shop: shopView(after), warnings: [] }) };
+          return { books: after, out: traced(result({ ok: true, kind: "purchase-order", speech, order: orderView(kept), shop: shopView(after), warnings: [] }), trace) };
         });
       }
       // 4. Place it with the supplier and keep its order number in the books.
-      return placeOrder(extra, order.id, answer.content.payment || "on_account", "owner, through elicitation");
+      return placeOrder(extra, order.id, answer.content.payment || "on_account", "owner, through elicitation", trace);
     },
   );
 
-  async function placeOrder(extra, orderId, payment, confirmedBy) {
+  async function placeOrder(extra, orderId, payment, confirmedBy, trace = []) {
     const books0 = prepare((await store.load(shopId)) ?? sampleBooks(clock()), clock());
     const current = L.findOrder(books0, orderId);
-    const placed = current ? await supplierPlace(extra, current, payment) : null;
+    const placed = current ? await supplierPlace(extra, current, payment, trace) : null;
     return withBooks((books) => {
       const order = L.findOrder(books, orderId) ?? current;
       let done;
@@ -554,7 +596,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       const warnings = [];
       if (placed?.ok && placed.order_id) {
         done = { ...order, status: "ordered", confirmedAt: books.now, payment, supplierOrder: placed.order_id, deliveryDate: placed.delivery_date, total: placed.total_cents };
-        speech = `Done. ${order.supplier} accepted ${order.number} as their order ${placed.order_id}, ${cents(placed.total_cents)}, delivering on ${placed.delivery_date}. I'll book the stock in when it arrives.`;
+        speech = `Done. ${order.supplier} accepted ${order.number} as their order ${placed.order_id}, ${cents(placed.total_cents)}, delivering ${daySaid(placed.delivery_date, books.today)}. I'll book the stock in when it arrives.`;
       } else {
         done = { ...order, status: "confirmed", confirmedAt: books.now, payment };
         speech = `Done. ${done.number} to ${done.supplier} is confirmed, about ${cents(done.total)}. I'll book the stock in when it arrives.`;
@@ -562,7 +604,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       }
       const after = L.addOrder(books, done);
       log("order-confirmed", { shopId, number: done.number, total: done.total, supplierOrder: done.supplierOrder || null });
-      return { books: after, out: result({ ok: true, kind: "purchase-order", speech, order: orderView(done), confirmed_by: confirmedBy, shop: shopView(after), warnings }) };
+      return { books: after, out: traced(result({ ok: true, kind: "purchase-order", speech, order: orderView(done), confirmed_by: confirmedBy, shop: shopView(after), warnings }), trace) };
     });
   }
 
@@ -573,7 +615,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       description: "Confirm a drafted purchase order after the owner has clearly said yes to it, and place it with the supplier. For clients that cannot show the confirmation form themselves.",
       inputSchema: { order: z.string().max(20).optional().describe("The order number, e.g. PO-0001; defaults to the latest draft"), payment: z.enum(["on_account", "cash", "mobile"]).default("on_account") },
       outputSchema: OrderOut,
-      annotations: { title: "Confirm a drafted purchase order", ...WRITE },
+      annotations: { title: "Confirm a drafted purchase order", ...WRITE, openWorldHint: true },
       _meta: cardMeta,
     },
     async ({ order: ref, payment }, extra) => {

@@ -49,13 +49,14 @@
   const request = (method, params) => new Promise((resolve, reject) => { const id = nextId++; pending.set(id, { resolve, reject }); post({ id, method, params }); });
   const notify = (method, params) => post({ method, params });
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const plural = (u) => ({ loaf: "loaves", box: "boxes", each: "each" })[u] || `${u}s`;
 
   function render(result) {
     const d = result?.structuredContent;
     if (!d?.items) { root.innerHTML = `<div class="wrap"><h1>${esc(result?.content?.[0]?.text || "")}</h1></div>`; return size(); }
     const tiles = d.items.map((r) => {
       const scale = Math.max(r.reorder_at * 3, r.qty, 1);
-      return `<div class="tile${r.low ? " low" : ""}">${r.low ? '<span class="badge">Low</span>' : ""}<div class="name">${esc(r.name)}</div><div class="qty">${esc(r.qty)}</div><div class="unit">${esc(r.unit)}${r.qty === 1 ? "" : "s"} on the shelf</div><div class="bar"><b style="width:${Math.min(100, Math.round((r.qty / scale) * 100))}%"></b></div><div class="meta"><span>Reorder at ${esc(r.reorder_at)}</span><span>${esc(r.sold_7_days)} sold / 7 days</span></div></div>`;
+      return `<div class="tile${r.low ? " low" : ""}">${r.low ? '<span class="badge">Low</span>' : ""}<div class="name">${esc(r.name)}</div><div class="qty">${esc(r.qty)}</div><div class="unit">${esc(r.qty === 1 ? r.unit : plural(r.unit))} on the shelf</div><div class="bar"><b style="width:${Math.min(100, Math.round((r.qty / scale) * 100))}%"></b></div><div class="meta"><span>Reorder at ${esc(r.reorder_at)}</span><span>${esc(r.sold_7_days)} sold / 7 days</span></div></div>`;
     }).join("");
     const dots = d.items.map((_, i) => `<span${i === 0 ? ' class="on"' : ""}></span>`).join("");
     root.innerHTML = `<div class="wrap"><div class="top"><div class="eyebrow"><i></i>Stock on hand</div>${d.shop?.demo ? '<span class="demo">Invented demo shop</span>' : ""}</div><h1>${d.low_count ? `${esc(d.low_count)} at the reorder level` : "Everything is above its reorder level"}</h1><div class="rail" id="rail">${tiles}</div><div class="foot"><div class="dots" id="dots">${d.items.length > 1 ? dots : ""}</div>${d.low_count ? '<button id="reorder" type="button">Reorder low items</button>' : ""}</div></div>`;

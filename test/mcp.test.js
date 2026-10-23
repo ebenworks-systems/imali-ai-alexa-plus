@@ -113,14 +113,21 @@ describe("Imali AI MCP server", () => {
         return { action: "accept", content: { confirm: true, payment: "on_account" } };
       },
     });
-    const r = await call(client, "reorder_stock", {});
-    // The books server asked the supplier network's MCP server for a quote, and the owner saw that quote.
-    assert.match(asked.message, /^Kudzai Wholesale can deliver 4 candles on \d{4}-\d{2}-\d{2} for \$3\.60\. They can't send all of it: Candles, pack of 6: only 4 available\. Place order PO-0001\?$/);
+    const full = await client.callTool({ name: "reorder_stock", arguments: {} });
+    const r = full.structuredContent;
+    // The books server asked the supplier network's MCP server for a quote, and the owner saw that quote, with the
+    // delivery day said the way a person says it.
+    assert.match(asked.message, /^Kudzai Wholesale can deliver 4 candles tomorrow, \w+day for \$3\.60\. They can't send all of it: Candles, pack of 6: only 4 available\. Place order PO-0001\?$/);
     assert.equal(asked.requestedSchema.properties.payment.oneOf.length, 3);
+    assert.equal(asked.requestedSchema.properties.confirm.default, false, "nothing is confirmed unless the owner says so");
+    // The result carries a trace of the books server's own calls to the supplier network.
+    const trace = full._meta["io.ebenworks.imali/trace"];
+    assert.deepEqual(trace.filter((t) => t.method === "tools/call").map((t) => t.tool), ["quote_order", "place_order"]);
+    assert.ok(trace.every((t) => t.server === "supplier network" && t.ok && Number.isFinite(t.ms)));
     // After the yes, it placed the order there and kept the supplier's order number.
     assert.equal(r.order.status, "ordered");
     assert.match(r.order.supplier_order, /^KW-\d{4}$/);
-    assert.match(r.speech, /accepted PO-0001 as their order KW-\d{4}, \$3\.60, delivering on/);
+    assert.match(r.speech, /accepted PO-0001 as their order KW-\d{4}, \$3\.60, delivering tomorrow, \w+day\./);
     assert.equal(r.confirmed_by, "owner, through elicitation");
     assert.ok(r.order.lines.some((l) => l.item === "candles-6" && l.qty === 4));
     const day = await call(client, "get_day_summary");
@@ -160,6 +167,10 @@ describe("Imali AI MCP server", () => {
     assert.equal(r.difference, "-$0.20");
     assert.equal(r.entry.balanced, true);
     assert.match(r.speech, /short by \$0\.20/);
+    // The day's card shows the shortage, and the spoken summary says it.
+    const day = await call(client, "get_day_summary");
+    assert.equal(day.till_short, "$0.20");
+    assert.match(day.speech, /running costs \$5\.00 and the till was short by \$0\.20, so you're down \$4\.70/);
     const journal = JSON.parse((await client.readResource({ uri: "imali-ai://books/journal" })).contents[0].text);
     assert.equal(journal.trial_balance.balanced, true);
     await client.close();
@@ -213,6 +224,16 @@ describe("Imali AI MCP server", () => {
     assert.match(tooMany.question, /only 3 Eggs, tray of 30/);
     const onWord = await call(client, "record_sale", { items: [{ item: "eggs", qty: 4 }], payment: "cash", books_behind_shelf: true });
     assert.equal(onWord.ok, true);
+    // On the owner's word the extra tray goes in first as a stock count correction, so stock never goes below zero.
+    assert.match(onWord.speech, /Your shelf had 1 eggs more than the books showed, so I added it first\. Eggs is down to 0\./);
+    const eggs = (await call(client, "get_stock", { item: "eggs" })).items[0];
+    assert.equal(eggs.qty, 0);
+    const kinds = JSON.parse((await client.readResource({ uri: "imali-ai://books/journal" })).contents[0].text);
+    assert.deepEqual(kinds.entries.slice(0, 2).map((e) => e.kind), ["sale", "stock-count"]);
+    assert.equal(kinds.trial_balance.balanced, true);
+    // Undoing the sale takes its correction out with it.
+    assert.equal((await call(client, "undo_last_entry", { confirm: true })).ok, true);
+    assert.equal((await call(client, "get_stock", { item: "eggs" })).items[0].qty, 3);
     const bigCost = await call(client, "record_expense", { amount: 100000, category: "rent" });
     assert.equal(bigCost.ok, false);
     assert.match(bigCost.question, /in the till, less than \$100,000\.00/);

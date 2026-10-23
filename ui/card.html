@@ -58,6 +58,8 @@
   const request = (method, params) => new Promise((resolve, reject) => { const id = nextId++; pending.set(id, { resolve, reject }); post({ id, method, params }); });
   const notify = (method, params) => post({ method, params });
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  // "2026-10-24" as a person reads it: "Sat 24 Oct".
+  const day = (iso) => (/^\d{4}-\d\d-\d\d$/.test(iso || "") ? new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }) : iso);
   const LABEL = { sale: "Sale recorded", "stock-in": "Stock received", expense: "Running cost", "customer-payment": "Tab payment", "supplier-payment": "Supplier paid", "cash-count": "Till count", "day-summary": "Today so far", "day-close": "Day closed", tabs: "Customers' tabs", "purchase-order": "Purchase order", undo: "Entry removed", reset: "Demo reset" };
   const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
 
@@ -82,13 +84,16 @@
     if (!d) { root.innerHTML = `<div class="card"><p>${esc(result?.content?.[0]?.text || "")}</p></div>`; return size(); }
     let html;
     if (d.ok === false) html = `${head(d)}<p class="ask">${esc(d.question)}</p>`;
-    else if (d.kind === "day-summary") html = `${head(d, d.day)}<div class="amount">${esc(d.sales)}</div><div class="sub">sales today</div>${tiles([["Gross profit", d.gross_profit, true], ["Running costs", d.running_costs], ["Up on the day", d.net], ["Cash sales", d.cash_sales], ["Mobile money", d.mobile_sales], ["On credit", d.credit_sales], ["Till should hold", d.cash_in_till, true]])}`;
+    else if (d.kind === "day-summary") {
+      const till = d.till_short && d.till_short !== "$0.00" ? [["Till short", d.till_short]] : d.till_over && d.till_over !== "$0.00" ? [["Till over", d.till_over]] : [];
+      html = `${head(d, d.day)}<div class="amount">${esc(d.sales)}</div><div class="sub">sales today</div>${tiles([["Gross profit", d.gross_profit, true], ["Running costs", d.running_costs], ...till, [d.net.startsWith("-") ? "Down on the day" : "Up on the day", d.net.replace(/^-/, "")], ["Cash sales", d.cash_sales], ["Mobile money", d.mobile_sales], ["On credit", d.credit_sales], ["Till should hold", d.cash_in_till, true]])}`;
+    }
     else if (d.kind === "day-close") html = `${head(d, d.shop?.today)}${tiles([["Books expected", d.expected], ["You counted", d.counted], ["Difference", d.difference, d.difference !== "$0.00"]])}${tiles([["Sales", d.sales], ["Gross profit", d.gross_profit, true], ["Running costs", d.running_costs], ["Up on the day", d.net, true]])}${journal(d.entry)}`;
     else if (d.kind === "tabs") html = `${head(d)}<div class="amount">${esc(d.total)}</div><div class="sub">owed to the shop</div><table><tbody>${(d.tabs.length ? d.tabs : [{ name: "Nobody", owes: "$0.00" }]).map((t) => `<tr><td>${esc(t.name)}</td><td class="n">${esc(t.owes)}</td></tr>`).join("")}</tbody></table>`;
     else if (d.kind === "purchase-order" && d.order) {
       const o = d.order;
       const rows = o.lines.map((l) => `<tr><td>${esc(l.name)}<span class="party">${esc(l.unitCost)} a ${esc(l.unit)}</span></td><td class="n">${esc(l.qty)}</td><td class="n">${esc(l.total)}</td></tr>`).join("");
-      const sup = o.supplier_order ? `<div class="supplier"><span>Supplier's order<b>${esc(o.supplier_order)}</b></span><span>Delivery<b>${esc(o.delivery_date)}</b></span><span>Paying<b>${esc(({ on_account: "On account", cash: "Cash on delivery", mobile: "Mobile money" })[o.payment] || "On account")}</b></span></div>` : "";
+      const sup = o.supplier_order ? `<div class="supplier"><span>Supplier's order<b>${esc(o.supplier_order)}</b></span><span>Delivery<b>${esc(day(o.delivery_date))}</b></span><span>Paying<b>${esc(({ on_account: "On account", cash: "Cash on delivery", mobile: "Mobile money" })[o.payment] || "On account")}</b></span></div>` : "";
       const note = o.status === "ordered" ? `Placed with ${esc(o.supplier)} on the supplier network after the owner's yes. No money or stock moves until the delivery is recorded.` : o.status === "confirmed" ? `Confirmed${d.confirmed_by ? ` by the ${esc(d.confirmed_by)}` : ""}. No money or stock moves until the delivery is recorded.` : o.status === "draft" ? "Nothing counts until the owner confirms." : o.status === "received" ? "Delivered and booked in." : "Cancelled. Nothing was ordered.";
       html = `${head(d, `${o.number} to ${o.supplier}`)}<span class="pill ${esc(o.status)}">${esc(o.status)}</span>${sup}<table><thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Cost</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>${o.status === "ordered" ? "Supplier's total" : "Estimated total"}</td><td></td><td class="n">${esc(o.total)}</td></tr></tfoot></table><p class="sub">${note}</p>`;
     } else if (d.entry) html = `${head(d, d.entry.memo)}<div class="amount">${esc(d.entry.amount)}</div>${journal(d.entry)}`;

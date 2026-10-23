@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<div class="navbar">
 <header class="nav">
   <a class="brand" href="#top" aria-label="Imali AI for Alexa+">
     <svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="17" fill="none" stroke="#cf4500" stroke-width="2.5" stroke-dasharray="80 27" stroke-linecap="round"/><circle cx="20" cy="20" r="7" fill="#f37338"/></svg>
@@ -24,6 +25,7 @@
   <button class="ghost" id="toggle-view" type="button" aria-pressed="false">Device view</button>
   <button class="ghost" id="open-settings" type="button" aria-haspopup="dialog">Settings</button>
 </header>
+</div>
 
 <main class="stage" id="top">
   <section class="lede">
@@ -88,7 +90,7 @@
   <form method="dialog" id="settings-form">
     <h2>Settings</h2>
     <p class="hint" id="signin-hint" hidden><b>Judges:</b> choose the AWS endpoint and sign in with the user and password from the testing instructions. The agent model is ready once you are signed in.</p>
-    <p class="hint">Saved in this browser only. A key you enter here is sent with each request to the model endpoint you name, through this page's own server, and is never stored there.</p>
+    <p class="hint">Saved in this browser only; the AWS password is kept for this tab only. A key you enter here is sent with each request to the model endpoint you name, through this page's own server, and is never stored there.</p>
     <fieldset>
       <legend>MCP server</legend>
       <label>Endpoint

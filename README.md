@@ -22,12 +22,12 @@ The demo shop (Rudo's Corner Shop in Harare), its customers, the supplier networ
 | Criterion | What to look at | Where |
 |---|---|---|
 | Alexa+ technology at runtime | A self-hosted MCP server on the official TypeScript SDK, spec 2025-11-25 over Streamable HTTP; the handshake test checks the negotiated version | `src/mcp.js`, `src/http.js`, `test/mcp.test.js`; film 1:35 |
-| Agentic workflow across services | `reorder_stock` drafts an order from the books, asks the supplier network's MCP server for a quote, confirms with the owner, then places the order there and keeps the supplier's order number | `src/mcp.js` (reorder), `src/supplier.js`; gallery 2 and 3 |
+| Agentic workflow across services | `reorder_stock` drafts an order from the books, asks the supplier network's MCP server for a quote, confirms with the owner, then places the order there and keeps the supplier's order number; each server-to-server call is reported to the client as it happens and shown in "Under the hood" | `src/mcp.js` (reorder), `src/supplier.js`; gallery 2 and 3; the live demo |
 | Purchasing | The owner confirms every purchase through MCP elicitation, with a choice of how to pay; undo and reset are confirmed the same way | `src/mcp.js`; film 0:39; gallery 2 |
 | State across sessions | Each shop's books persist across sessions and microVMs (DynamoDB on AWS, one version-checked item per shop) and are tied to the signed-in user | `src/store.js`, `src/http.js`; film 1:53; gallery 6 |
 | Media: cards and carousels as MCP Apps | A receipt card and a stock carousel served as `ui://` resources (`text/html;profile=mcp-app`); the carousel's Reorder button calls a tool through the host | `ui/card.html`, `ui/stock.html`; gallery 1, 3, 4 |
 | Agent Skills | A skill that teaches any skills-aware agent the workflow and the rule never to state a figure of its own | `skills/imali-ai-shop-books/SKILL.md` |
-| Design for voice and screen | Speech in and out, an Echo Show-style device view, a confirmation sheet you can tap or answer by voice, a guided mode that works with no model at all | `web/`; gallery 7; the live demo |
+| Design for voice and screen | Speech in and out, a device view framed as an 8-inch 1280 × 800 counter screen, a confirmation sheet you can tap or answer by voice (only a clear yes confirms), and a guided mode that works with no model at all and takes over when the model is busy | `web/`; gallery 7; the live demo |
 | AWS Builder | Two MCP runtimes on AgentCore (books and supplier, server-to-server MCP), Cognito JWT sign-in, DynamoDB, ECR, least-privilege IAM, one deploy script | `deploy/`; film 2:10; gallery 6 |
 | Friction log | Seven entries with task, steps, expected and actual, severity, workaround and suggestion | [docs/FRICTION-LOG.md](docs/FRICTION-LOG.md) |
 
@@ -124,14 +124,17 @@ On 23 October 2026 that run negotiated protocol 2025-11-25, called `record_sale`
 ![Architecture: the simulated screen and other MCP hosts talk MCP 2025-11-25 over Streamable HTTP to the shop books server on AgentCore, which orchestrates the supplier network server and keeps the books in DynamoDB](docs/architecture.png)
 
 **The books.** [src/ledger.js](src/ledger.js) is plain double-entry bookkeeping in whole cents: cash, mobile money,
-customers' tabs, stock at cost, suppliers, sales, cost of goods sold, running costs, and cash over or short. Each tool
+customers' tabs, stock at cost, suppliers, sales, cost of goods sold, stock count differences, running costs, and cash
+over or short. Each tool
 builds its entry there, and the entry is applied only if its debits equal its credits. A sale debits cash (or the
 customer's tab), credits sales, and moves cost of goods out of stock at the item's cost.
 
 **Asking instead of guessing.** A tool returns `ok: false` and one question to ask the owner when the request does not
 fit the books: an item not on the stock list, a credit sale with no customer, a sale larger than the stock the books
 show, money paid out of the till or the mobile wallet that is not there, or a total that differs from the price list
-by more than ten percent. The owner's answer comes back as a confirming argument.
+by more than ten percent. The owner's answer comes back as a confirming argument. When the owner confirms a sale larger
+than the books' stock, the extra on the shelf goes in first as a stock count correction, so stock never goes below
+zero, and undoing the sale takes the correction out with it.
 
 **The model never calculates a figure.** The model passes the owner's own words and numbers to the tools; the server's
 code computes every total, balance, profit and quantity to order, and each tool returns the sentence to say. Before a
@@ -159,10 +162,14 @@ that turn; if one does not match, it speaks the tools' own lines instead. Number
 reorder it drafts the order, asks for a quote (the supplier may fill only part of a line), shows the owner the quote
 through elicitation, and after the yes places the order, which the supplier records once per purchase order number.
 The supplier's order number and delivery date go into the books; stock and money move only when the delivery is
-recorded. If the supplier cannot be reached, the order stays in the books only and the owner is told.
+recorded. If the supplier cannot be reached, the order stays in the books only and the owner is told. Each call to the
+supplier (its `initialize`, `quote_order`, `place_order`, with what was asked, what came back and how long it took) is
+sent to the client as a log notification on the same request while it happens, and the result's `_meta`
+(`io.ebenworks.imali/trace`) carries the whole trace.
 
-**Elicitation.** The reorder form has a confirm field and a titled single-select for how to pay (the 2025-11-25
-schema). A client without elicitation gets the quote back as a draft and confirms it with `confirm_purchase_order`
+**Elicitation.** The reorder form has a confirm field, unticked by default, and a titled single-select for how to pay
+(the 2025-11-25 schema). The simulated screen reads a spoken or typed answer as a yes only when it is a clear yes with
+no "no", "not", "don't", "cancel", "stop" or "wait" in it. A client without elicitation gets the quote back as a draft and confirms it with `confirm_purchase_order`
 after the owner says yes. Undo and reset ask the same way.
 
 **MCP Apps.** The two views in [ui/](ui/) are served as `ui://imali-ai/card.html` and `ui://imali-ai/stock.html` with
@@ -177,18 +184,19 @@ written only if nobody changed it since it was read. On AWS the shop name is pre
 ## Tests and measurements
 
 ```bash
-npm test     # 28 tests: the ledger, both MCP servers end to end over HTTP with the official client, the relay, the sign-in check
+npm test     # 31 tests: the ledger, both MCP servers end to end over HTTP with the official client, the relay, the sign-in check, reading a yes
 ```
 
 The end-to-end tests check that the handshake negotiates 2025-11-25, that every tool and both views are listed, that a
 sale balances, that books persist across sessions and stay apart between shops, that the reorder quotes, confirms and
 places the order with the supplier, that an unreachable supplier leaves the order in the books with a warning, that
 undo and reset ask first, that a repeated request id is recorded once, that stock and cash cannot go below zero
-unasked, that the relay never sends its key to a caller's endpoint, and that a forged or wrong sign-in is refused.
+unasked and stock not at all, that the reorder's trace names both supplier calls, that "No, don't confirm that" is not
+a yes, that the relay never sends its key to a caller's endpoint, and that a forged or wrong sign-in is refused.
 
 Measured on 23 October 2026, from a workstation in Korea:
 
-- All 28 tests pass.
+- All 31 tests pass.
 - AgentCore in us-east-1, two runs on warm runtimes: single tool calls 0.46 to 1.01 s; a new session's `initialize`
   1.2 to 2.3 s; the whole reorder across both servers (quote, confirmation, order) 3.5 s. A cold start is about 7 s.
 - The hosted page, signed in as the judge, with the agent model (Claude Sonnet 5.5 through our model gateway), two runs

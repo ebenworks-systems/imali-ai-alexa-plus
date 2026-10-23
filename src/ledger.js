@@ -14,6 +14,7 @@ export const ACCOUNTS = {
   cogs: { code: "5000", name: "Cost of goods sold", type: "expense" },
   expenses: { code: "6000", name: "Running costs", type: "expense" },
   overshort: { code: "6900", name: "Cash over or short", type: "expense" },
+  stockcount: { code: "5100", name: "Stock count differences", type: "expense" },
 };
 
 const METHOD_ACCOUNT = { cash: "cash", mobile: "mobile" };
@@ -183,7 +184,7 @@ export function dayOf(iso) {
 }
 
 export function daySummary(books, day = books.today) {
-  const s = { day, sales: 0, cash: 0, mobile: 0, credit: 0, cogs: 0, expenses: 0, overshort: 0, collected: 0, count: 0 };
+  const s = { day, sales: 0, cash: 0, mobile: 0, credit: 0, cogs: 0, expenses: 0, overshort: 0, stockcount: 0, collected: 0, count: 0 };
   for (const entry of books.journal) {
     if (entry.kind === "opening" || dayOf(entry.at) !== day) continue;
     s.count += 1;
@@ -192,6 +193,7 @@ export function daySummary(books, day = books.today) {
       if (l.account === "cogs") s.cogs += (l.debit || 0) - (l.credit || 0);
       if (l.account === "expenses") s.expenses += (l.debit || 0) - (l.credit || 0);
       if (l.account === "overshort") s.overshort += (l.debit || 0) - (l.credit || 0);
+      if (l.account === "stockcount") s.stockcount += (l.debit || 0) - (l.credit || 0);
     }
     if (entry.kind === "sale") {
       const paid = entry.lines.find((l) => l.debit && ["cash", "mobile", "debtors"].includes(l.account));
@@ -200,7 +202,7 @@ export function daySummary(books, day = books.today) {
     if (entry.kind === "customer-payment") s.collected += entry.lines.find((l) => l.debit)?.debit || 0;
   }
   s.grossProfit = s.sales - s.cogs;
-  s.net = s.grossProfit - s.expenses - s.overshort;
+  s.net = s.grossProfit - s.expenses - s.overshort - s.stockcount;
   return s;
 }
 
@@ -277,6 +279,7 @@ export function buildSale(books, args = {}) {
   let listTotal = 0;
   let costTotal = 0;
   const parts = [];
+  const found = [];
   const rawItems = Array.isArray(args.items) ? args.items : [];
   if (!rawItems.length) return fail("Which items did you sell?");
   for (const raw of rawItems) {
@@ -295,8 +298,12 @@ export function buildSale(books, args = {}) {
     const left = (levels[item.id] || 0) - qty;
     if (left < 0 && !args.books_behind_shelf)
       return fail(`Your books show only ${fmtQty(levels[item.id] || 0)} ${item.name} in stock. Did you really sell ${fmtQty(qty)}? If the shelf had more than the books, say so and I'll record it.`);
-    if (left < 0) warnings.push(`Your books showed only ${fmtQty(levels[item.id] || 0)} ${item.name}; recorded on your word. A stock count will settle it.`);
-    else if (left <= item.reorderAt) warnings.push(`${item.name} is down to ${fmtQty(left)}. Time to reorder.`);
+    // On the owner's word the shelf held more than the books: the difference goes in first as a stock count
+    // correction, so stock never goes below zero.
+    if (left < 0) {
+      found.push({ item, qty: -left });
+      warnings.push(`Your books showed only ${fmtQty(levels[item.id] || 0)} ${item.name}, so ${fmtQty(-left)} more on the shelf went in first as a stock count correction.`);
+    } else if (left <= item.reorderAt) warnings.push(`${item.name} is down to ${fmtQty(left)}. Time to reorder.`);
   }
   let total = listTotal;
   let received = toCents(args.amount_received);
@@ -330,7 +337,18 @@ export function buildSale(books, args = {}) {
   // A foreign payment keeps its rate and where the rate came from, so the books carry their own audit trail.
   const src = args.rate_source;
   const fx = foreign && src ? { paid: foreign, rate: Number(args.rate), source: src.source, url: src.url, asOf: src.asOf, kind: src.kind, readAt: src.readAt, fingerprint: src.fingerprint, crossChecked: Boolean(src.crossChecked) } : undefined;
-  return { ok: true, entry: entry(books, "sale", `Sold ${parts.join(", ")} ${how}`, lines, stock, { amount: total, method, party, ...(fx ? { fx } : {}) }), warnings };
+  const sale = entry(books, "sale", `Sold ${parts.join(", ")} ${how}`, lines, stock, { amount: total, method, party, ...(fx ? { fx } : {}) });
+  if (!found.length) return { ok: true, entry: sale, warnings };
+  const value = found.reduce((t, f) => t + Math.round(f.item.cost * f.qty), 0);
+  const count = entry(
+    books,
+    "stock-count",
+    `Stock count: ${found.map((f) => `${fmtQty(f.qty)} × ${f.item.name}`).join(", ")} on the shelf that the books did not show`,
+    [{ account: "stock", debit: value }, { account: "stockcount", credit: value }],
+    found.map((f) => ({ item: f.item.id, qty: f.qty })),
+    { amount: value, linkedTo: sale.id },
+  );
+  return { ok: true, entry: sale, before: [count], warnings };
 }
 
 export function buildStockIn(books, args = {}) {
@@ -490,8 +508,9 @@ export function applyPrice(books, change) {
   return { ...books, items: { ...books.items, [item.id]: { ...item, price: change.to } } };
 }
 
+// Removes an entry and any entry made only for it, such as the stock count correction before a sale.
 export function removeEntry(books, id) {
-  return { ...books, journal: books.journal.filter((e) => e.id !== id || e.kind === "opening") };
+  return { ...books, journal: books.journal.filter((e) => e.kind === "opening" || (e.id !== id && e.linkedTo !== id)) };
 }
 
 // ---- purchase orders -------------------------------------------------------------------------

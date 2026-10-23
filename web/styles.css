@@ -63,10 +63,14 @@ button { cursor: pointer; touch-action: manipulation; }
 .ghost:hover { border-color: var(--dust); }
 .ghost:active { transform: scale(0.97); }
 
-/* ---- navigation pill ---- */
+/* ---- navigation pill, on a solid strip so the page never shows through above it ---- */
+.navbar {
+  position: sticky; top: 0; z-index: 5; padding-top: 14px;
+  background: linear-gradient(to bottom, var(--canvas) calc(100% - 12px), rgba(243, 240, 238, 0));
+}
 .nav {
-  position: sticky; top: 14px; z-index: 5; display: flex; align-items: center; gap: 16px;
-  width: min(1240px, calc(100% - 28px)); margin: 14px auto 0; padding: 10px 12px 10px 18px;
+  position: relative; display: flex; align-items: center; gap: 16px;
+  width: min(1240px, calc(100% - 28px)); margin: 0 auto; padding: 10px 12px 10px 18px;
   background: rgba(255, 255, 255, 0.86); backdrop-filter: saturate(1.4) blur(10px);
   border-radius: 999px; box-shadow: 0 10px 30px rgba(20, 20, 19, 0.06);
 }
@@ -173,6 +177,11 @@ button { cursor: pointer; touch-action: manipulation; }
 .traffic li.ask { background: var(--peach); }
 .traffic li code { font: 600 12.5px/1.3 ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
 .traffic li small { color: var(--slate); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.traffic li.nested { margin-left: 18px; background: var(--white); border: 1px dashed var(--dust); }
+.traffic li.nested .dir { color: var(--slate); }
+.traffic li details { grid-column: 2 / -1; }
+.traffic li summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--slate); letter-spacing: 0.04em; }
+.traffic li pre { margin: 6px 0 2px; padding: 10px; max-height: 260px; overflow: auto; border-radius: 10px; background: var(--white); font: 500 11.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ---- settings ---- */
 .settings { border: 0; border-radius: 28px; padding: 0; width: min(560px, calc(100% - 24px)); background: var(--white); color: var(--ink); box-shadow: 0 40px 90px rgba(20, 20, 19, 0.2); }
@@ -180,10 +189,11 @@ button { cursor: pointer; touch-action: manipulation; }
 .settings form { padding: 26px; display: grid; gap: 14px; }
 .settings h2 { margin: 0; font-size: 26px; font-weight: 500; letter-spacing: -0.02em; }
 .settings .hint { margin: 0; color: var(--slate); font-size: 14px; }
-.settings fieldset { border: 1px solid var(--rule); border-radius: 18px; padding: 12px 14px 14px; display: grid; gap: 10px; }
+.settings fieldset { min-width: 0; border: 1px solid var(--rule); border-radius: 18px; padding: 12px 14px 14px; display: grid; gap: 10px; }
 .settings legend { padding: 0 6px; font-size: 13px; font-weight: 700; color: var(--slate); }
 .settings label { display: grid; gap: 4px; font-size: 13px; color: var(--slate); font-weight: 600; }
-.settings input, .settings select { border: 1px solid var(--rule); border-radius: 12px; padding: 10px 12px; background: var(--paper); color: var(--ink); font-size: 16px; font-weight: 450; }
+.settings label, .settings .row > * { min-width: 0; }
+.settings input, .settings select { width: 100%; min-width: 0; border: 1px solid var(--rule); border-radius: 12px; padding: 10px 12px; background: var(--paper); color: var(--ink); font-size: 16px; font-weight: 450; }
 .settings .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .settings .check { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 15px; }
 .settings-actions { display: flex; justify-content: flex-end; gap: 10px; }
@@ -194,7 +204,9 @@ button { cursor: pointer; touch-action: manipulation; }
   .hood { position: static; }
 }
 @media (max-width: 560px) {
-  .nav { gap: 10px; padding: 8px 8px 8px 12px; top: 8px; margin-top: 8px; width: calc(100% - 16px); }
+  .navbar { padding-top: 8px; }
+  .nav { gap: 8px; padding: 8px 8px 8px 12px; width: calc(100% - 16px); }
+  .chips #chip-proto { display: none; }
   .brand small { display: none; }
   .chips .quiet { display: none; }
   .chip { font-size: 12px; padding: 5px 10px; }
@@ -228,11 +240,31 @@ body.film .facts div { padding: 5px 0; }
 body.film .traffic { max-height: calc(100vh - 440px); }
 body.film .hood.lit { box-shadow: 0 0 0 4px var(--carrot), var(--shadow); transition: box-shadow 0.4s var(--ease); }
 
-/* ---- device view: the counter screen alone, as an Echo Show would hold it ---- */
+/* ---- device view: the counter screen alone, framed like an 8-inch Echo Show (1280 x 800, 16:10) ---- */
 body.device .lede, body.device .hood { display: none; }
-body.device .stage { grid-template-columns: minmax(0, 1fr); grid-template-areas: "device" "controls"; max-width: 1100px; padding-top: 28px; }
-body.device .screen { height: min(72vh, 720px); }
-body.device .reply { font-size: clamp(28px, 3vw, 38px); }
+body.device .stage { grid-template-columns: minmax(0, 1fr); grid-template-areas: "device" "controls"; max-width: 1040px; padding-top: 28px; justify-items: center; }
+body.device .device { width: min(980px, 100%); }
+body.device .device::after { content: "Device view: an 8-inch counter screen, 1280 × 800"; display: block; margin-top: 30px; text-align: center; font-size: 13px; color: var(--slate); }
+body.device .screen {
+  height: auto; aspect-ratio: 16 / 10; padding: 22px 30px 30px;
+  border: 22px solid transparent; border-radius: 30px;
+  /* the bezel, with the camera in its top edge, painted under the screen */
+  background:
+    linear-gradient(180deg, var(--white), var(--paper)) padding-box,
+    radial-gradient(circle at 50% 11px, #c9c2ba 3px, transparent 3.6px) border-box,
+    #f6f4f1 border-box;
+  box-shadow: 0 0 0 1px #ddd7d0, 0 40px 70px rgba(20, 20, 19, 0.12), inset 0 0 0 1px rgba(20, 20, 19, 0.05);
+}
+body.device .device { position: relative; z-index: 0; }
+body.device .device::before {
+  content: ""; position: absolute; left: 12%; right: 12%; bottom: 20px; height: 34px; z-index: -1; border-radius: 0 0 26px 26px;
+  background: repeating-linear-gradient(90deg, #e3ded8 0 2px, #ebe7e2 2px 4px);
+}
+body.device .reply { font-size: clamp(26px, 2.6vw, 34px); }
+body.device .controls { width: min(980px, 100%); }
 .traffic li code { min-width: 0; }
 .traffic li small { white-space: normal; text-align: right; max-width: 11em; }
-@media (max-width: 560px) { #toggle-view { display: none; } }
+@media (max-width: 560px) {
+  body.device .screen { aspect-ratio: auto; height: 640px; border-width: 10px; padding: 18px 16px 28px; }
+  body.device .device::before, body.device .device::after { display: none; }
+}

@@ -3,6 +3,7 @@
 // tools the model picks, answers the server's elicitation requests, and hosts the server's MCP Apps views.
 // The model chooses tools and words; every figure it may say must already be in the books' answers.
 
+import { heardYes } from "./answer.js";
 import { Client, ElicitRequestSchema, StreamableHTTPClientTransport } from "./vendor/mcp.js";
 
 const $ = (id) => document.getElementById(id);
@@ -10,8 +11,24 @@ const els = { screen: $("screen"), said: $("said"), reply: $("reply"), cards: $(
 const APP_MIME = "text/html;profile=mcp-app";
 const UI_PROTOCOL = "2026-01-26";
 const SETTINGS_KEY = "imali-ai-alexa-settings";
+const PASS_KEY = "imali-ai-alexa-aws-pass";
+const TRACE = "io.ebenworks.imali/trace";
 
-const settings = { endpoint: "local", mcpUrl: "", shop: "", awsUser: "", awsPass: "", llmBase: "", llmModel: "", llmKey: "", voice: true, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+// Settings stay in this browser. The AWS password stays in this tab's session storage only, and a copy an older
+// version left in local storage is moved there.
+const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+if (stored.awsPass) {
+  sessionStorage.setItem(PASS_KEY, stored.awsPass);
+  delete stored.awsPass;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(stored));
+}
+const settings = { endpoint: "local", mcpUrl: "", shop: "", awsUser: "", llmBase: "", llmModel: "", llmKey: "", voice: true, ...stored, awsPass: sessionStorage.getItem(PASS_KEY) || "" };
+function saveSettings() {
+  const { awsPass, ...rest } = settings;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(rest));
+  if (awsPass) sessionStorage.setItem(PASS_KEY, awsPass);
+  else sessionStorage.removeItem(PASS_KEY);
+}
 let config = { mcpUrl: "/mcp", aws: null, model: { relay: false } };
 let client;
 let transport;
@@ -32,14 +49,27 @@ function setState(state, label) {
   els.state.textContent = label ?? { idle: "Ready", listening: "Listening", thinking: "Working", speaking: "Speaking" }[state] ?? "";
 }
 
-function logTraffic(dir, text, note = "", cls = "") {
+// One line per JSON-RPC message, newest first. A line with a message opens to show it in full.
+function logTraffic(dir, text, note = "", cls = "", message = null) {
   const li = document.createElement("li");
-  li.className = `${dir === "←" ? "in" : "out"} ${cls}`.trim();
+  li.className = `${dir === "←" ? "in" : dir === "↳" ? "nested" : "out"} ${cls}`.trim();
   li.innerHTML = `<span class="dir">${dir}</span><code></code><small></small>`;
   li.querySelector("code").textContent = text;
   li.querySelector("small").textContent = note;
+  if (message) {
+    const more = document.createElement("details");
+    more.innerHTML = "<summary>JSON</summary><pre></pre>";
+    const json = JSON.stringify(message, null, 2);
+    more.querySelector("pre").textContent = json.length > 6000 ? `${json.slice(0, 6000)}\n…` : json;
+    li.append(more);
+  }
   els.traffic.prepend(li);
-  while (els.traffic.children.length > 60) els.traffic.lastChild.remove();
+  while (els.traffic.children.length > 80) els.traffic.lastChild.remove();
+}
+
+// The books server's own calls to the supplier network's MCP server, which it reports in the result's _meta.
+function logTrace(trace) {
+  for (const t of trace) logTraffic("↳", `${t.server}: ${t.method}${t.tool ? ` ${t.tool}` : ""}`, `${t.ms} ms`, t.ok === false ? "ask" : "", t.request || t.response ? { request: t.request, response: t.response } : null);
 }
 
 function chip(id, text, ok) {
@@ -56,7 +86,7 @@ function tickClock() {
 function shopId() {
   if (!settings.shop) {
     settings.shop = `shop-${Math.random().toString(36).slice(2, 8)}`;
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    saveSettings();
   }
   return settings.shop;
 }
@@ -98,27 +128,37 @@ async function connect() {
   client.setRequestHandler(ElicitRequestSchema, (req) => askOwner(req.params));
   transport = new StreamableHTTPClientTransport(url, { requestInit: { headers } });
 
-  // Log every JSON-RPC message this page sends and receives.
+  // Log every JSON-RPC message this page sends and receives; each line opens to show the message itself.
   const started = new Map();
   const send = transport.send.bind(transport);
   transport.send = async (msg, opts) => {
     if (msg.method) {
-      started.set(msg.id, performance.now());
+      if (msg.id !== undefined) started.set(msg.id, performance.now());
       const what = msg.method === "tools/call" ? `tools/call ${msg.params.name}` : msg.method === "resources/read" ? `resources/read ${msg.params.uri}` : msg.method;
-      if (msg.method !== "notifications/initialized") logTraffic("→", what);
-    } else if (msg.result) logTraffic("→", "elicitation answer", msg.result.action, "ask");
+      logTraffic("→", what, "", "", msg);
+    } else if (msg.result) logTraffic("→", "elicitation answer", msg.result.action, "ask", msg);
     return send(msg, opts);
   };
   const t0 = performance.now();
   await client.connect(transport);
   const onmessage = transport.onmessage;
+  let heardSteps = false;
   transport.onmessage = (msg, extra) => {
-    if (msg.method === "elicitation/create") logTraffic("←", "elicitation/create", "server asks the owner", "ask");
-    else if (msg.id !== undefined && started.has(msg.id)) {
+    if (msg.method === "elicitation/create") logTraffic("←", "elicitation/create", "server asks the owner", "ask", msg);
+    else if (msg.method === "notifications/message" && msg.params?.logger === "supplier-network") {
+      // The books server reports each of its own calls to the supplier network as it makes it.
+      heardSteps = true;
+      logTrace([msg.params.data]);
+    } else if (msg.id !== undefined && started.has(msg.id)) {
       const ms = Math.round(performance.now() - started.get(msg.id));
       started.delete(msg.id);
-      logTraffic("←", msg.error ? `error ${msg.error.code}` : "result", `${ms} ms`);
-    }
+      const trace = msg.result?._meta?.[TRACE];
+      if (Array.isArray(trace) && !heardSteps) logTrace(trace);
+      heardSteps = false;
+      // A view's HTML is long and adds nothing to read here, so its text is shortened.
+      const shown = msg.result?.contents?.some((c) => c.mimeType === APP_MIME) ? { ...msg, result: { ...msg.result, contents: msg.result.contents.map((c) => ({ ...c, text: `${c.text.slice(0, 200)}…` })) } } : msg;
+      logTraffic("←", msg.error ? `error ${msg.error.code}` : "result", `${ms} ms`, "", shown);
+    } else if (msg.method) logTraffic("←", msg.method, "", "", msg);
     onmessage?.(msg, extra);
   };
 
@@ -279,16 +319,26 @@ function modelHeaders() {
   return h;
 }
 
+// A failure to get any answer from the model is marked, so the turn can fall back to calling a suggestion's tool.
+function modelDown(message) {
+  const err = new Error(message);
+  err.modelDown = true;
+  return err;
+}
+
 async function askModel() {
   const t0 = performance.now();
-  const post = () => fetch("agent/chat", { method: "POST", headers: modelHeaders(), body: JSON.stringify({ messages: [{ role: "system", content: systemPrompt() }, ...history], tools: modelTools }) });
+  const post = () =>
+    fetch("agent/chat", { method: "POST", headers: modelHeaders(), body: JSON.stringify({ messages: [{ role: "system", content: systemPrompt() }, ...history], tools: modelTools }) }).catch((err) => {
+      throw modelDown(`The model relay could not be reached (${err.message || err}).`);
+    });
   let res = await post();
   if (res.status === 401 && config.hosted && settings.awsUser) {
     await awsToken();
     res = await post();
   }
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `The model relay answered ${res.status}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw modelDown(data.error || `The model relay answered ${res.status}`);
   const label = settings.llmKey ? `${settings.llmModel || "your model"} (your endpoint)` : `${prettyModel(data.model)}${data.via ? ` · ${data.via}` : ""}`;
   $("f-model").textContent = `${label} · ${((performance.now() - t0) / 1000).toFixed(1)} s`;
   return data.message;
@@ -328,8 +378,10 @@ async function turn(text) {
   els.said.textContent = `“${text}”`;
   els.reply.textContent = "";
   setState("thinking");
+  const mark = history.length;
   history.push({ role: "user", content: text });
   const results = [];
+  let fallBack = false;
   try {
     for (let round = 0; round < 6; round++) {
       const msg = await askModel();
@@ -352,14 +404,22 @@ async function turn(text) {
       }
     }
   } catch (err) {
-    setState("idle", "Ready");
-    say(`Sorry, that didn't go through: ${String(err.message || err)}`);
-    logTraffic("←", "error", "see the reply", "ask");
+    if (err.modelDown && !results.length) {
+      // The model gave no answer and no tool has run: the turn is taken back and run as a guided turn instead.
+      history = history.slice(0, mark);
+      fallBack = true;
+      logTraffic("←", "model unavailable", "guided mode", "ask");
+    } else {
+      setState("idle", "Ready");
+      say(`Sorry, that didn't go through: ${String(err.message || err)}`);
+      logTraffic("←", "error", "see the reply", "ask");
+    }
   } finally {
     history = history.slice(-30);
     while (history.length && history[0].role !== "user") history.shift();
     busy = false;
   }
+  if (fallBack) return guidedTurn(text, { modelBusy: true });
 }
 
 // ---- voice -----------------------------------------------------------------------------------
@@ -430,7 +490,7 @@ function listen() {
     if (els.screen.dataset.state === "listening") setState("idle");
     if (!finalText) return;
     lastInputWasVoice = true;
-    if (pendingConfirm) return pendingConfirm(/\b(yes|yeah|yep|sure|confirm|go ahead|okay|ok)\b/i.test(finalText) ? "accept" : "decline");
+    if (pendingConfirm) return pendingConfirm(heardYes(finalText) ? "accept" : "decline");
     turn(finalText);
   };
   recognizer.start();
@@ -454,10 +514,13 @@ const SUGGESTIONS = [
 const modelAvailable = () => Boolean(config.model?.relay || settings.llmKey);
 const plain = (t) => String(t).toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
 
-async function guidedTurn(text) {
+async function guidedTurn(text, { modelBusy = false } = {}) {
   const pick = SUGGESTIONS.find((x) => plain(x.text) === plain(text));
   if (!pick) {
-    say("There's no agent model set up here, so I can only run the suggestions below. Add a model under Settings to talk freely.");
+    if (modelBusy) $("f-model").textContent = "Busy right now: the suggestions call their tools directly";
+    say(modelBusy
+      ? "The agent model is busy right now. The suggestions below still work: each one calls its tool directly."
+      : "There's no agent model set up here, so I can only run the suggestions below. Add a model under Settings to talk freely.");
     return;
   }
   busy = true;
@@ -466,7 +529,7 @@ async function guidedTurn(text) {
   setState("thinking");
   try {
     const out = await runTool(pick.tool, pick.args);
-    $("f-model").textContent = "None: guided mode calls the tool directly";
+    $("f-model").textContent = modelBusy ? "Busy, so this suggestion called its tool directly" : "None: guided mode calls the tool directly";
     $("f-guard").textContent = "Not needed: the reply is the tool's own line";
     say(out.structuredContent?.ok === false ? out.structuredContent.question : out.structuredContent?.speech || "Done.");
   } catch (err) {
@@ -510,7 +573,7 @@ async function main() {
     lastInputWasVoice = false;
     const text = els.input.value;
     els.input.value = "";
-    if (pendingConfirm) return pendingConfirm(/\b(yes|yeah|confirm|ok)\b/i.test(text) ? "accept" : "decline");
+    if (pendingConfirm) return pendingConfirm(heardYes(text) ? "accept" : "decline");
     turn(text);
   };
   els.mic.onclick = () => listen();
@@ -535,7 +598,7 @@ async function main() {
       llmKey: $("s-llm-key").value.trim(),
       voice: $("s-voice").checked,
     });
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    saveSettings();
     history = [];
     await connect().catch(showError);
   });
@@ -581,7 +644,7 @@ window.imaliHear = async (text, ms = 1500) => {
   }
   els.mic.setAttribute("aria-pressed", "false");
   setState("idle");
-  if (pendingConfirm) return pendingConfirm(/\b(yes|yeah|confirm|ok)\b/i.test(text) ? "accept" : "decline");
+  if (pendingConfirm) return pendingConfirm(heardYes(text) ? "accept" : "decline");
   return turn(text);
 };
 window.imaliBusy = () => busy || els.screen.dataset.state === "thinking";
