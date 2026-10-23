@@ -1,82 +1,98 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" font-family="Sofia Sans, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" font-family="Sofia Sans, Helvetica, Arial, sans-serif">
   <title>Imali AI for Alexa+: how the pieces connect</title>
-  <rect width="1200" height="640" fill="#f3f0ee"/>
+  <rect width="1200" height="700" fill="#f3f0ee"/>
   <defs>
     <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#cf4500"/></marker>
     <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#696969"/></marker>
   </defs>
 
-  <text x="40" y="54" font-size="28" font-weight="600" fill="#141413">Imali AI for Alexa+</text>
-  <text x="40" y="82" font-size="16" fill="#696969">The owner talks; an agent picks MCP tools; the server's code keeps the books in whole cents.</text>
+  <text x="40" y="52" font-size="28" font-weight="600" fill="#141413">Imali AI for Alexa+</text>
+  <text x="40" y="80" font-size="16" fill="#696969">The owner talks; an agent picks MCP tools; two MCP servers on AgentCore keep the books and place the order.</text>
 
   <!-- the simulated Alexa+ screen -->
-  <rect x="40" y="112" width="330" height="300" rx="26" fill="#fcfbfa" stroke="#e4dfda"/>
-  <circle cx="64" cy="140" r="5" fill="#cf4500"/>
-  <text x="78" y="145" font-size="13" font-weight="700" letter-spacing="1" fill="#696969">SIMULATED ALEXA+ SCREEN</text>
-  <text x="62" y="178" font-size="17" font-weight="600" fill="#141413">Browser page (web/)</text>
-  <text x="62" y="206" font-size="15" fill="#262627">Speech in and spoken replies</text>
-  <text x="62" y="230" font-size="15" fill="#262627">MCP client: official TypeScript SDK</text>
-  <text x="62" y="254" font-size="15" fill="#262627">MCP Apps host: cards in a sandbox</text>
-  <text x="62" y="278" font-size="15" fill="#262627">Confirmation sheet for elicitation</text>
-  <text x="62" y="302" font-size="15" fill="#262627">Figures check on every reply</text>
-  <rect x="62" y="326" width="286" height="62" rx="14" fill="#fbe3d4"/>
-  <text x="78" y="352" font-size="14" font-weight="600" fill="#7a2e06">Agent model, any OpenAI-compatible</text>
-  <text x="78" y="373" font-size="14" fill="#7a2e06">endpoint, through a small relay</text>
+  <rect x="40" y="110" width="300" height="300" rx="26" fill="#fcfbfa" stroke="#e4dfda"/>
+  <circle cx="64" cy="138" r="5" fill="#cf4500"/>
+  <text x="78" y="143" font-size="13" font-weight="700" letter-spacing="1" fill="#696969">SIMULATED ALEXA+ SCREEN</text>
+  <text x="60" y="174" font-size="16" font-weight="600" fill="#141413">Web page, local or hosted</text>
+  <text x="60" y="200" font-size="14" fill="#262627">Speech in, spoken replies</text>
+  <text x="60" y="222" font-size="14" fill="#262627">MCP client: official TypeScript SDK</text>
+  <text x="60" y="244" font-size="14" fill="#262627">MCP Apps host: cards in a sandbox</text>
+  <text x="60" y="266" font-size="14" fill="#262627">Elicitation sheet: tap or say yes</text>
+  <text x="60" y="288" font-size="14" fill="#262627">Figures check on every reply</text>
+  <rect x="60" y="306" width="260" height="84" rx="14" fill="#fbe3d4"/>
+  <text x="74" y="330" font-size="13" font-weight="600" fill="#7a2e06">Agent model through a relay that</text>
+  <text x="74" y="350" font-size="13" fill="#7a2e06">answers only Cognito-verified callers</text>
+  <text x="74" y="370" font-size="13" fill="#7a2e06">(hosted on Vercel), or your own key</text>
 
-  <!-- other hosts -->
-  <rect x="40" y="440" width="330" height="96" rx="22" fill="#fcfbfa" stroke="#e4dfda"/>
-  <text x="62" y="474" font-size="17" font-weight="600" fill="#141413">Any other MCP host</text>
-  <text x="62" y="500" font-size="15" fill="#262627">e.g. Claude Code over HTTP;</text>
-  <text x="62" y="522" font-size="15" fill="#262627">the Agent Skill in skills/ guides it</text>
+  <rect x="40" y="436" width="300" height="88" rx="22" fill="#fcfbfa" stroke="#e4dfda"/>
+  <text x="60" y="468" font-size="16" font-weight="600" fill="#141413">Any other MCP host</text>
+  <text x="60" y="492" font-size="14" fill="#262627">Claude Code over HTTP; the Agent</text>
+  <text x="60" y="512" font-size="14" fill="#262627">Skill in skills/ guides any agent</text>
 
-  <!-- protocol arrows -->
-  <line x1="372" y1="230" x2="512" y2="230" stroke="#cf4500" stroke-width="3" marker-end="url(#arr)" marker-start="url(#arr)"/>
-  <text x="380" y="214" font-size="13" font-weight="700" fill="#cf4500">MCP 2025-11-25</text>
-  <text x="380" y="256" font-size="13" fill="#696969">Streamable HTTP</text>
-  <text x="380" y="274" font-size="13" fill="#696969">tools, resources,</text>
-  <text x="380" y="292" font-size="13" fill="#696969">elicitation</text>
-  <line x1="372" y1="488" x2="512" y2="370" stroke="#cf4500" stroke-width="3" marker-end="url(#arr)"/>
+  <!-- protocol arrows to the books server -->
+  <line x1="342" y1="232" x2="440" y2="232" stroke="#cf4500" stroke-width="3" marker-end="url(#arr)" marker-start="url(#arr)"/>
+  <text x="346" y="216" font-size="11" font-weight="700" fill="#cf4500">MCP 2025-11-25</text>
+  <text x="346" y="254" font-size="11" fill="#696969">Streamable HTTP</text>
+  <text x="346" y="270" font-size="11" fill="#696969">Cognito JWT</text>
+  <line x1="342" y1="480" x2="440" y2="380" stroke="#cf4500" stroke-width="3" marker-end="url(#arr)"/>
 
-  <!-- the server -->
-  <rect x="514" y="112" width="330" height="424" rx="26" fill="#ffffff" stroke="#e4dfda"/>
-  <circle cx="538" cy="140" r="5" fill="#cf4500"/>
-  <text x="552" y="145" font-size="13" font-weight="700" letter-spacing="1" fill="#696969">IMALI AI MCP SERVER (src/)</text>
-  <text x="536" y="180" font-size="15" font-weight="600" fill="#141413">13 tools with structured output</text>
-  <text x="536" y="203" font-size="14" fill="#262627">record_sale · record_stock_received</text>
-  <text x="536" y="223" font-size="14" fill="#262627">record_expense · record_tab_payment</text>
-  <text x="536" y="243" font-size="14" fill="#262627">get_day_summary · get_customer_tabs</text>
-  <text x="536" y="263" font-size="14" fill="#262627">get_stock · close_day · reorder_stock …</text>
-  <text x="536" y="297" font-size="15" font-weight="600" fill="#141413">MCP Apps views</text>
-  <text x="536" y="320" font-size="14" fill="#262627">ui://imali-ai/card.html · stock.html</text>
-  <text x="536" y="354" font-size="15" font-weight="600" fill="#141413">Elicitation before a purchase order</text>
-  <text x="536" y="388" font-size="15" font-weight="600" fill="#141413">Prompts: close_the_day, morning_check</text>
-  <rect x="536" y="410" width="286" height="104" rx="16" fill="#e7f1ea"/>
-  <text x="552" y="438" font-size="15" font-weight="600" fill="#1d7a4a">The ledger (src/ledger.js)</text>
-  <text x="552" y="461" font-size="14" fill="#1d7a4a">Double entry in whole cents</text>
-  <text x="552" y="482" font-size="14" fill="#1d7a4a">Refuses any entry that does not balance</text>
-  <text x="552" y="503" font-size="14" fill="#1d7a4a">The model never writes a figure</text>
+  <!-- AgentCore frame -->
+  <rect x="438" y="100" width="552" height="440" rx="30" fill="none" stroke="#cf4500" stroke-width="1.5" stroke-dasharray="6 6"/>
+  <text x="452" y="126" font-size="13" font-weight="700" letter-spacing="1" fill="#cf4500">AMAZON BEDROCK AGENTCORE RUNTIME · us-east-1 · microVM per session</text>
 
-  <!-- storage arrow -->
-  <line x1="846" y1="460" x2="954" y2="460" stroke="#696969" stroke-width="2.5" marker-end="url(#arrg)"/>
-  <text x="858" y="448" font-size="13" fill="#696969">books per shop</text>
+  <!-- books server -->
+  <rect x="446" y="142" width="300" height="382" rx="24" fill="#ffffff" stroke="#e4dfda"/>
+  <text x="466" y="172" font-size="13" font-weight="700" letter-spacing="1" fill="#696969">SHOP BOOKS MCP SERVER</text>
+  <text x="466" y="198" font-size="14" font-weight="600" fill="#141413">13 tools with structured output</text>
+  <text x="466" y="218" font-size="13" fill="#262627">record_sale · record_expense · close_day</text>
+  <text x="466" y="236" font-size="13" fill="#262627">get_stock · get_customer_tabs · undo …</text>
+  <text x="466" y="264" font-size="14" font-weight="600" fill="#141413">MCP Apps: card.html, stock.html</text>
+  <text x="466" y="290" font-size="14" font-weight="600" fill="#141413">reorder_stock orchestrates:</text>
+  <text x="466" y="310" font-size="13" fill="#262627">1 draft from the books</text>
+  <text x="466" y="328" font-size="13" fill="#262627">2 quote from the supplier server</text>
+  <text x="466" y="346" font-size="13" fill="#262627">3 owner confirms (elicitation)</text>
+  <text x="466" y="364" font-size="13" fill="#262627">4 order placed, its number kept</text>
+  <rect x="464" y="384" width="264" height="120" rx="16" fill="#e7f1ea"/>
+  <text x="480" y="410" font-size="14" font-weight="600" fill="#1d7a4a">The ledger</text>
+  <text x="480" y="432" font-size="13" fill="#1d7a4a">Double entry in whole cents</text>
+  <text x="480" y="452" font-size="13" fill="#1d7a4a">Refuses entries that don't balance</text>
+  <text x="480" y="472" font-size="13" fill="#1d7a4a">Asks before stock or cash go</text>
+  <text x="480" y="490" font-size="13" fill="#1d7a4a">below zero</text>
 
-  <!-- where it runs -->
-  <rect x="956" y="112" width="204" height="232" rx="26" fill="#fcfbfa" stroke="#e4dfda"/>
-  <text x="976" y="146" font-size="13" font-weight="700" letter-spacing="1" fill="#696969">ON AWS (us-east-1)</text>
-  <text x="976" y="180" font-size="15" font-weight="600" fill="#141413">Bedrock AgentCore</text>
-  <text x="976" y="200" font-size="15" font-weight="600" fill="#141413">Runtime</text>
-  <text x="976" y="222" font-size="13" fill="#262627">ARM64 container, MCP</text>
-  <text x="976" y="240" font-size="13" fill="#262627">microVM per session</text>
-  <text x="976" y="272" font-size="15" font-weight="600" fill="#141413">Amazon Cognito</text>
-  <text x="976" y="292" font-size="13" fill="#262627">JWT sign-in</text>
-  <text x="976" y="322" font-size="13" fill="#262627">Images in Amazon ECR</text>
+  <!-- supplier server -->
+  <rect x="770" y="142" width="204" height="220" rx="24" fill="#ffffff" stroke="#e4dfda"/>
+  <text x="788" y="172" font-size="13" font-weight="700" letter-spacing="1" fill="#696969">SUPPLIER NETWORK</text>
+  <text x="788" y="190" font-size="13" font-weight="700" letter-spacing="1" fill="#696969">MCP SERVER</text>
+  <text x="788" y="218" font-size="13" fill="#262627">Second runtime, same</text>
+  <text x="788" y="236" font-size="13" fill="#262627">image and sign-in</text>
+  <text x="788" y="262" font-size="13" fill="#262627">quote_order</text>
+  <text x="788" y="280" font-size="13" fill="#262627">place_order (once per PO)</text>
+  <text x="788" y="306" font-size="12" fill="#696969">Invented wholesaler and</text>
+  <text x="788" y="322" font-size="12" fill="#696969">bakery, invented prices</text>
+  <line x1="748" y1="320" x2="768" y2="320" stroke="#cf4500" stroke-width="3" marker-end="url(#arr)"/>
+  <text x="752" y="384" font-size="12" font-weight="700" fill="#cf4500">server-to-server MCP,</text>
+  <text x="752" y="400" font-size="12" fill="#696969">caller's token passed on</text>
 
-  <rect x="956" y="370" width="204" height="166" rx="26" fill="#fcfbfa" stroke="#e4dfda"/>
-  <text x="976" y="404" font-size="13" font-weight="700" letter-spacing="1" fill="#696969">BOOKS</text>
-  <text x="976" y="438" font-size="15" font-weight="600" fill="#141413">Amazon DynamoDB</text>
-  <text x="976" y="458" font-size="13" fill="#262627">on AWS, one item a shop</text>
-  <text x="976" y="490" font-size="15" font-weight="600" fill="#141413">A JSON file a shop</text>
-  <text x="976" y="510" font-size="13" fill="#262627">on your own computer</text>
+  <!-- storage -->
+  <line x1="746" y1="470" x2="1018" y2="470" stroke="#696969" stroke-width="2.5" marker-end="url(#arrg)"/>
+  <line x1="872" y1="364" x2="1018" y2="440" stroke="#696969" stroke-width="2.5" marker-end="url(#arrg)"/>
+  <rect x="1020" y="400" width="150" height="124" rx="22" fill="#fcfbfa" stroke="#e4dfda"/>
+  <text x="1036" y="430" font-size="13" font-weight="700" letter-spacing="1" fill="#696969">BOOKS</text>
+  <text x="1036" y="456" font-size="14" font-weight="600" fill="#141413">DynamoDB</text>
+  <text x="1036" y="476" font-size="12" fill="#262627">one item a shop,</text>
+  <text x="1036" y="494" font-size="12" fill="#262627">version-checked</text>
+  <text x="1036" y="512" font-size="12" fill="#262627">(a JSON file locally)</text>
 
-  <text x="40" y="600" font-size="14" fill="#696969">The demo shop, its people and figures are invented. A confirmed purchase order is kept in the books; the demo sends nothing to a supplier.</text>
+  <rect x="1020" y="142" width="150" height="220" rx="22" fill="#fcfbfa" stroke="#e4dfda"/>
+  <text x="1036" y="172" font-size="13" font-weight="700" letter-spacing="1" fill="#696969">AROUND IT</text>
+  <text x="1036" y="200" font-size="14" font-weight="600" fill="#141413">Amazon Cognito</text>
+  <text x="1036" y="218" font-size="12" fill="#262627">sign-in, shop tied</text>
+  <text x="1036" y="234" font-size="12" fill="#262627">to the user</text>
+  <text x="1036" y="262" font-size="14" font-weight="600" fill="#141413">Amazon ECR</text>
+  <text x="1036" y="280" font-size="12" fill="#262627">ARM64 image</text>
+  <text x="1036" y="308" font-size="14" font-weight="600" fill="#141413">AWS IAM</text>
+  <text x="1036" y="326" font-size="12" fill="#262627">least-privilege role</text>
+
+  <text x="40" y="600" font-size="14" fill="#696969">The demo shop, its people, the supplier network and every figure are invented. Locally, both MCP servers run in one process (/mcp and /supplier/mcp).</text>
+  <text x="40" y="624" font-size="14" fill="#696969">The model never calculates a figure: it passes the owner's words to tools; the server's code computes every total and balance.</text>
 </svg>

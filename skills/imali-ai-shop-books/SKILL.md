@@ -11,8 +11,8 @@ metadata:
 # Imali AI shop books
 
 The owner talks; the Imali AI MCP server keeps the books. Every entry is double entry in whole cents and is
-checked to balance by the server's code before it is saved. Your job is to pick the right tool and say what it
-returns. You never work out a figure yourself.
+checked to balance by the server's code before it is saved. Your job is to pick the right tool, pass the owner's own
+words and numbers to it, and say what it returns. You never calculate a figure yourself.
 
 ## The rule that matters most
 
@@ -35,17 +35,24 @@ nothing else. Do not add up, convert or estimate anything in your own words.
 | "What's running low?" / "How much rice is left?" | `get_stock` (with `item` for one item) |
 | "Order what's low" | `reorder_stock` |
 | "Closing up, I counted fifty dollars" | `close_day` with `counted_cash` |
-| "That last one was wrong" | `undo_last_entry` |
+| "That last one was wrong" | `undo_last_entry` (the owner confirms first) |
 
 One event, one call. A message that names two events ("sold bread for cash and paid transport") is two calls.
 
 ## Workflows
 
 **Reorder.** Call `reorder_stock` with no items to reorder everything at its reorder level, sized to a week of
-sales. If your client supports elicitation, the server asks the owner to confirm the order itself; say its
-`speech` line afterwards. If not, the order comes back as a `draft`: read it to the owner, and only after a clear
-yes call `confirm_purchase_order`. A confirmed order moves no money and no stock. When the goods arrive, call
-`record_stock_received` with the `order` number.
+sales. The server asks the supplier network's own MCP server for a quote (the supplier may send less than asked).
+If your client supports elicitation, the server shows the owner that quote and asks for a yes itself; say its
+`speech` line afterwards. If not, the quote comes back as a `draft`: read it to the owner, and only after a clear
+yes call `confirm_purchase_order`. Either way the server then places the order with the supplier and keeps the
+supplier's order number. An order moves no money and no stock. When the goods arrive, call `record_stock_received`
+with the `order` number, which closes it.
+
+**When the server asks.** A tool returns `ok: false` with one question when the request does not fit the books: an
+item not on the list, a sale larger than the stock shown, money paid out that is not in the till, a total that does
+not match the price list. Ask exactly that question. Only after the owner confirms, call again with the confirming
+argument the tool describes (`books_behind_shelf`, `price_confirmed`, `confirm`).
 
 **Close the day.** Ask for the till count if the owner has not said it, then call `close_day`. Never guess a
 count. The server records any shortage or surplus as its own entry and returns the day's figures.

@@ -2,29 +2,47 @@
 
 A shop owner keeps her books by voice. She says "Sold three bread and two cooking oil, cash" to the assistant on the
 counter; an agent picks a tool on the Imali AI MCP server; the server's code writes a balanced double-entry record in
-whole cents and answers with a line to speak and a card to show. The model never writes a figure.
+whole cents and answers with a line to speak and a card to show. When stock runs low, the books server asks a second
+MCP server, the supplier network, for a live quote, the owner confirms it through MCP elicitation, and the order is
+placed with the supplier. The model never calculates a figure.
 
-This repository holds three things, all built for the Amazon Developer Hackathon (Alexa+ track and the AWS Builder
-mini challenge):
+Built for the Amazon Developer Hackathon: Alexa+ track and the AWS Builder mini challenge.
 
-- **A self-hosted MCP server** on the official TypeScript SDK, implementing MCP spec **2025-11-25** over
-  **Streamable HTTP**: 13 tools with structured output, two MCP Apps views (a receipt card and a stock carousel),
-  elicitation before a purchase order counts, a journal resource, two prompts, and books kept per shop across sessions.
-- **A simulated Alexa+ experience**: a web page that is a real MCP client (initialize, tools/list, tools/call,
-  resources/read, elicitation), with speech in through the browser's speech recognition, spoken replies, Alexa-style
-  cards rendered as an MCP Apps host, and a figures check on every reply. Amazon's Alexa+ developer tools are open to
-  select partners only, so this follows the hackathon's simulated-experience path.
-- **AWS hosting**: the same server on **Amazon Bedrock AgentCore Runtime** (stateful MCP sessions, one microVM per
-  session), signed in with **Amazon Cognito**, with the books in **Amazon DynamoDB**.
+- **Try it:** https://imali-ai-alexa-plus.vercel.app (sign in with the judge account from the testing instructions;
+  everything then runs against the MCP servers on Amazon Bedrock AgentCore Runtime).
+- **Watch:** https://youtu.be/7eg4CjfgeJg (2:48, recorded from the live page with live MCP and model calls).
+- **Run it yourself:** `npm install && npm start` (below).
 
-There is also an [Agent Skill](skills/imali-ai-shop-books/SKILL.md) for the same workflow, so any agent that loads
-skills knows which tool to call and that it must never state a figure of its own.
+![The simulated Alexa+ screen after a reorder: the supplier accepted the order, and the MCP traffic shows the elicitation](docs/screenshot.jpg)
 
-![The simulated Alexa+ screen recording a sale, with the MCP traffic beside it](docs/screenshot.png)
+The demo shop (Rudo's Corner Shop in Harare), its customers, the supplier network and every figure are invented.
 
-The demo film (2:48, recorded from the live page with live MCP and model calls): https://youtu.be/7eg4CjfgeJg
+## Where each judging criterion is met
 
-The demo shop (Rudo's Corner Shop in Harare), its customers, supplier and figures are invented.
+| Criterion | What to look at | Where |
+|---|---|---|
+| Alexa+ technology at runtime | A self-hosted MCP server on the official TypeScript SDK, spec 2025-11-25 over Streamable HTTP; the handshake test checks the negotiated version | `src/mcp.js`, `src/http.js`, `test/mcp.test.js`; film 1:35 |
+| Agentic workflow across services | `reorder_stock` drafts an order from the books, asks the supplier network's MCP server for a quote, confirms with the owner, then places the order there and keeps the supplier's order number | `src/mcp.js` (reorder), `src/supplier.js`; gallery 2 and 3 |
+| Purchasing | The owner confirms every purchase through MCP elicitation, with a choice of how to pay; undo and reset are confirmed the same way | `src/mcp.js`; film 0:39; gallery 2 |
+| State across sessions | Each shop's books persist across sessions and microVMs (DynamoDB on AWS, one version-checked item per shop) and are tied to the signed-in user | `src/store.js`, `src/http.js`; film 1:53; gallery 6 |
+| Media: cards and carousels as MCP Apps | A receipt card and a stock carousel served as `ui://` resources (`text/html;profile=mcp-app`); the carousel's Reorder button calls a tool through the host | `ui/card.html`, `ui/stock.html`; gallery 1, 3, 4 |
+| Agent Skills | A skill that teaches any skills-aware agent the workflow and the rule never to state a figure of its own | `skills/imali-ai-shop-books/SKILL.md` |
+| Design for voice and screen | Speech in and out, an Echo Show-style device view, a confirmation sheet you can tap or answer by voice, a guided mode that works with no model at all | `web/`; gallery 7; the live demo |
+| AWS Builder | Two MCP runtimes on AgentCore (books and supplier, server-to-server MCP), Cognito JWT sign-in, DynamoDB, ECR, least-privilege IAM, one deploy script | `deploy/`; film 2:10; gallery 6 |
+| Friction log | Seven entries with task, steps, expected and actual, severity, workaround and suggestion | [docs/FRICTION-LOG.md](docs/FRICTION-LOG.md) |
+
+The film was recorded before the supplier network was added; the gallery and the live demo show it.
+
+## Who it is for
+
+Imali AI is an AI business operating system for small shops: one AI agent runs sales, stock, staff, suppliers and
+double-entry books from a text, voice note or photo. It launched on 21 October 2026 and is live on Google Play and
+WhatsApp, for shops in Africa first. The owner's problem is the same anywhere: she is serving a queue, so the books
+wait until closing time, and by then the morning's sales are a guess. In the United States alone there were 151,975
+convenience stores at the end of 2025, and 95,672 of them (63%) belonged to companies with ten or fewer stores
+([NACS 2026 store count](https://www.convenience.org/Research/FactSheets/IndustryStoreCount)). A voice assistant on the
+counter fits that owner: hands busy, eyes on the customer, books kept as she talks. Because the books are an open MCP
+server, the same shop can use them from Alexa+, from Imali AI's own chat, or from any other assistant.
 
 ## Run it on your computer
 
@@ -32,42 +50,48 @@ You need Node.js 20 or newer and Chrome (for speech input; any modern browser wo
 
 ```bash
 npm install
-LLM_BASE_URL=https://api.openai.com/v1 LLM_MODEL=gpt-4.1-mini LLM_API_KEY=sk-... npm start
+npm start
 ```
 
-Open http://127.0.0.1:8787. `npm start` bundles the MCP client for the page and starts the server, which serves the
-MCP endpoint at `/mcp` and the simulated screen at `/`. The agent model is any OpenAI-compatible chat completions
-endpoint with tool calling: set the three variables above, or start with no variables and enter your own endpoint,
-model and key under **Settings** on the page (they stay in your browser and go to the endpoint you name, through the
-page's own server, which does not store them). Books are kept as one JSON file per shop under `data/`.
+Open http://127.0.0.1:8787. `npm start` bundles the MCP client for the page and starts the server: the shop books MCP
+server at `/mcp`, the supplier network MCP server at `/supplier/mcp`, and the simulated screen at `/`.
 
-Press the microphone and say what happened, or type it, or tap one of the suggestions:
+- **No model key?** The page starts in guided mode: each suggestion calls its MCP tool directly, so the cards, the
+  supplier quote, the elicitation sheet and memory across sessions all work with no model.
+- **To talk freely,** give it any OpenAI-compatible chat endpoint with tool calling, either when starting
+  (`LLM_BASE_URL=https://api.openai.com/v1 LLM_MODEL=gpt-4.1-mini LLM_API_KEY=sk-... npm start`) or under **Settings**
+  on the page. A key entered in Settings stays in your browser and goes only to the endpoint you name, through the
+  page's own server, which does not store it.
+
+Books are kept as one JSON file per shop under `data/`.
 
 | Say | What happens |
 |---|---|
 | "Sold three bread and two cooking oil, cash" | `record_sale`: a receipt card with the four journal lines, balanced to the cent |
 | "Mai Tendai took two sugar and a bag of maize meal on credit" | a credit sale on her tab, and a low-stock warning |
 | "What's running low?" | `get_stock`: the stock carousel, an MCP App with its own Reorder button |
-| "Order what's low from Kudzai Wholesale" | `reorder_stock` drafts a purchase order sized to a week of sales, then the server asks the owner to confirm it through elicitation |
+| "Order what's low from Kudzai Wholesale" | `reorder_stock`: a quote from the supplier's MCP server, the owner's confirmation, then the supplier's order number |
 | "How are we doing today?" | `get_day_summary`: sales, gross profit and what the till should hold |
 | "Closing up. I counted fifty dollars in the till" | `close_day`: compares the count with the books and records any shortage |
 | "Who owes me money?" | `get_customer_tabs`, still there after you close the page and come back |
+| "Undo that last one" | `undo_last_entry`, after the owner confirms which entry goes |
 
 ## Run it against AWS
 
-The server is deployed to Amazon Bedrock AgentCore Runtime in `us-east-1`. Its endpoint needs a Cognito access token,
-and the simulated screen can sign in for you: under **Settings**, choose *AWS: Amazon Bedrock AgentCore Runtime* and
-enter the judge's user name and password from the submission's testing instructions. The page then talks to AgentCore
-directly from the browser (AgentCore answers browser requests with CORS headers), sending the token and the header
-`X-Amzn-Bedrock-AgentCore-Runtime-Custom-Shop` to pick a shop. Start the local server with these two variables so
-the page knows where AWS is:
+The two MCP servers are deployed to Amazon Bedrock AgentCore Runtime in `us-east-1`, each as its own runtime from the
+same ARM64 image. Their endpoints need an Amazon Cognito access token. The hosted page at
+https://imali-ai-alexa-plus.vercel.app signs in for you with the judge account; to use the AWS servers from a local
+copy, start it with these two variables, open **Settings**, choose *AWS: Amazon Bedrock AgentCore Runtime* and sign in:
 
 ```bash
 AWS_MCP_URL='https://bedrock-agentcore.us-east-1.amazonaws.com/runtimes/arn%3Aaws%3Abedrock-agentcore%3Aus-east-1%3A247794289304%3Aruntime%2Fimali_ai_alexa_mcp-HMEl7f6r8r/invocations?qualifier=DEFAULT' \
 AWS_COGNITO_CLIENT_ID=1i6tbosvleocks39oakfjfrgeq npm start
 ```
 
-A scripted client checks any endpoint end to end, local or AWS:
+The page calls AgentCore directly from the browser (AgentCore answers with CORS headers), sending the token and the
+header `X-Amzn-Bedrock-AgentCore-Runtime-Custom-Shop`. On AgentCore the shop is tied to the signed-in user, so a caller
+reaches only shops under their own sign-in. The books runtime calls the supplier runtime over MCP, passing the caller's
+token on. A scripted client checks either endpoint end to end:
 
 ```bash
 npm run smoke                                   # against http://127.0.0.1:8787/mcp
@@ -76,10 +100,11 @@ COGNITO_CLIENT_ID=1i6tbosvleocks39oakfjfrgeq COGNITO_USER=judge COGNITO_PASSWORD
 ```
 
 To deploy your own copy, an administrator first makes the runtime's IAM role (trust `bedrock-agentcore.amazonaws.com`;
-allow pulling the image, writing its logs, and `GetItem`/`PutItem` on the books table), then `deploy/agentcore.sh`
-does the rest with the plain AWS CLI: the DynamoDB table, the Cognito pool and app client, an ARM64 image built from
-a clean copy of the commit and pushed to ECR, and the AgentCore runtime with protocol MCP, a JWT authorizer and the
-shop header allowlisted. [deploy/AWS-NOTES.md](deploy/AWS-NOTES.md) lists what is deployed and what it measured.
+allow pulling the image, writing its logs, and `GetItem`/`PutItem` on the books table). Then `deploy/agentcore.sh`
+does the rest with the plain AWS CLI: the DynamoDB table, the Cognito pool and app client, an ARM64 image built from a
+clean copy of the commit and pushed to ECR, and the two runtimes with protocol MCP, a JWT authorizer and the shop
+header allowlisted. `scripts/deploy-vercel.sh` deploys the hosted page; its model relay answers only callers whose
+Cognito token it has verified. [deploy/AWS-NOTES.md](deploy/AWS-NOTES.md) lists what is deployed and what it measured.
 
 ## Use it from another assistant
 
@@ -96,79 +121,93 @@ On 23 October 2026 that run negotiated protocol 2025-11-25, called `record_sale`
 
 ## How it works
 
-![Architecture: the simulated screen and other MCP hosts talk MCP 2025-11-25 over Streamable HTTP to the Imali AI server, whose ledger keeps the books in a file locally or in DynamoDB on AWS](docs/architecture.png)
+![Architecture: the simulated screen and other MCP hosts talk MCP 2025-11-25 over Streamable HTTP to the shop books server on AgentCore, which orchestrates the supplier network server and keeps the books in DynamoDB](docs/architecture.png)
 
 **The books.** [src/ledger.js](src/ledger.js) is plain double-entry bookkeeping in whole cents: cash, mobile money,
 customers' tabs, stock at cost, suppliers, sales, cost of goods sold, running costs, and cash over or short. Each tool
 builds its entry there, and the entry is applied only if its debits equal its credits. A sale debits cash (or the
 customer's tab), credits sales, and moves cost of goods out of stock at the item's cost.
 
-**The tools.** [src/mcp.js](src/mcp.js) registers the tools with input schemas, output schemas and annotations
-(read-only, destructive). Each result carries a `speech` line built from the books, the same facts as
-`structuredContent`, and `_meta.ui.resourceUri` pointing at the card that shows it. When a tool cannot proceed it
-returns `ok: false` and the one question to ask, instead of guessing: an item that is not on the stock list, a credit
-sale with no customer, a price that does not match what was paid.
+**Asking instead of guessing.** A tool returns `ok: false` and one question to ask the owner when the request does not
+fit the books: an item not on the stock list, a credit sale with no customer, a sale larger than the stock the books
+show, money paid out of the till or the mobile wallet that is not there, or a total that differs from the price list
+by more than ten percent. The owner's answer comes back as a confirming argument.
+
+**The model never calculates a figure.** The model passes the owner's own words and numbers to the tools; the server's
+code computes every total, balance, profit and quantity to order, and each tool returns the sentence to say. Before a
+reply is spoken, the page checks every number written in digits against the owner's words and the tools' results for
+that turn; if one does not match, it speaks the tools' own lines instead. Numbers written in words are not checked.
+
+**The tools.** [src/mcp.js](src/mcp.js) registers 13 tools with input schemas, output schemas and annotations
+(read-only, destructive). Each result carries a `speech` line, the same facts as `structuredContent`, and
+`_meta.ui.resourceUri` pointing at the card that shows it. A client may name each call with a request id in `_meta`
+(`io.ebenworks.imali/request-id`); a repeat of the same id is answered with the entry already recorded.
 
 | Tool | Does |
 |---|---|
 | `record_sale` | A sale for cash, mobile money or on a customer's tab |
-| `record_stock_received` | A delivery, paid or owed, optionally filling a purchase order |
+| `record_stock_received` | A delivery, paid or owed, optionally filling and closing a purchase order |
 | `record_expense` | A running cost |
 | `record_tab_payment` / `record_supplier_payment` | Money in from a customer's tab, money out to a supplier |
 | `get_day_summary` / `get_customer_tabs` / `get_stock` | Questions answered from the books |
 | `close_day` | The till count against the books, with any difference recorded |
-| `reorder_stock` / `confirm_purchase_order` | A purchase order the owner confirms before it counts |
-| `undo_last_entry` / `reset_demo_shop` | Putting things right |
+| `reorder_stock` / `confirm_purchase_order` | A quoted purchase order the owner confirms, placed with the supplier |
+| `undo_last_entry` / `reset_demo_shop` | Putting things right, after the owner confirms |
 
-**Elicitation.** `reorder_stock` drafts the order, saves it as a draft, and then sends `elicitation/create` to the
-client with a form: confirm, and how the shop will pay (a titled single-select from the 2025-11-25 schema). Only an
-accepted answer confirms it; a declined one cancels it. A client without elicitation gets the draft back and can
-confirm it with `confirm_purchase_order` after the owner says yes. A confirmed order moves no money and no stock;
-`record_stock_received` books the delivery when it comes. The demo sends nothing to a supplier.
+**Orchestration across two MCP servers.** [src/supplier.js](src/supplier.js) is the supplier network's own MCP server
+(an invented wholesaler and bakery) with `quote_order` and `place_order`. The books server is its MCP client: for a
+reorder it drafts the order, asks for a quote (the supplier may fill only part of a line), shows the owner the quote
+through elicitation, and after the yes places the order, which the supplier records once per purchase order number.
+The supplier's order number and delivery date go into the books; stock and money move only when the delivery is
+recorded. If the supplier cannot be reached, the order stays in the books only and the owner is told.
+
+**Elicitation.** The reorder form has a confirm field and a titled single-select for how to pay (the 2025-11-25
+schema). A client without elicitation gets the quote back as a draft and confirms it with `confirm_purchase_order`
+after the owner says yes. Undo and reset ask the same way.
 
 **MCP Apps.** The two views in [ui/](ui/) are served as `ui://imali-ai/card.html` and `ui://imali-ai/stock.html` with
-MIME type `text/html;profile=mcp-app`. They speak the MCP Apps `ui/` protocol (2026-01-26) by `postMessage`, written
-by hand with no third-party code: `ui/initialize`, then the host sends `ui/notifications/tool-input` and
-`tool-result`, and the view reports its height. The stock carousel's Reorder button asks the host for `tools/call`
-on `reorder_stock`, so the purchase flow can start from the card. The simulated screen is the host: it reads the
-resource, renders it in a sandboxed iframe (scripts only, no same origin) and answers the view's requests.
+MIME type `text/html;profile=mcp-app`. They speak the MCP Apps `ui/` protocol (2026-01-26) by `postMessage`, written by
+hand with no third-party code. The simulated screen is the host: it reads the resource, renders it in a sandboxed
+iframe (scripts only, no same origin) and answers the view's requests, including `tools/call`.
 
-**State across sessions.** The client names its shop with a header; the server loads that shop's books at the
-start of every tool call and saves them after. Locally that is a JSON file per shop; on AWS it is one DynamoDB item
-per shop, written only if nobody changed it since it was read. A new MCP session, a new browser, or another
-assistant all see the same books.
-
-**The figures check.** The page's agent model only chooses tools and words. Before a reply is spoken, every number
-in it must appear in the owner's words or in what the tools returned in that turn; if one does not, the page speaks
-the tools' own lines instead and says so in the log.
+**State across sessions.** The client names its shop with a header; the server loads that shop's books at the start of
+every tool call and saves them after. Locally that is a JSON file per shop; on AWS it is one DynamoDB item per shop,
+written only if nobody changed it since it was read. On AWS the shop name is prefixed with the signed-in user.
 
 ## Tests and measurements
 
 ```bash
-npm test     # 17 tests: the ledger, and the server end to end over HTTP with the official MCP client
+npm test     # 28 tests: the ledger, both MCP servers end to end over HTTP with the official client, the relay, the sign-in check
 ```
 
-The end-to-end tests check that the handshake negotiates 2025-11-25, that every tool and both views are listed, that
-a sale is balanced, that books persist across sessions and stay apart between shops, that elicitation confirms or
-cancels an order, that a client without elicitation can confirm a draft, and that closing the day records a shortage.
+The end-to-end tests check that the handshake negotiates 2025-11-25, that every tool and both views are listed, that a
+sale balances, that books persist across sessions and stay apart between shops, that the reorder quotes, confirms and
+places the order with the supplier, that an unreachable supplier leaves the order in the books with a warning, that
+undo and reset ask first, that a repeated request id is recorded once, that stock and cash cannot go below zero
+unasked, that the relay never sends its key to a caller's endpoint, and that a forged or wrong sign-in is refused.
 
-Measured on 23 October 2026: all 17 tests pass. In the browser on the local server, with the agent model on Claude
-Sonnet 5.5 through our model service, six spoken requests in a row each took 4.9 to 6.1 s from request to spoken
-reply, and every reply passed the figures check. Against AgentCore in `us-east-1`, measured from Korea, tool calls
-took 0.44 to 0.96 s, a warm `initialize` 1.3 to 2.6 s, and a cold start about 7 s ([deploy/AWS-NOTES.md](deploy/AWS-NOTES.md)).
+Measured on 23 October 2026, from a workstation in Korea:
+
+- All 28 tests pass.
+- AgentCore in us-east-1, two runs on warm runtimes: single tool calls 0.46 to 1.01 s; a new session's `initialize`
+  1.2 to 2.3 s; the whole reorder across both servers (quote, confirmation, order) 3.5 s. A cold start is about 7 s.
+- The hosted page, signed in as the judge, with the agent model (Claude Sonnet 5.5 through our model gateway): four
+  spoken requests in a row took 6.6 to 8.9 s each from request to spoken reply, and every reply passed the figures check.
 
 ## Repository map
 
 | Path | What |
 |---|---|
-| `src/` | The MCP server: tools, ledger, storage, HTTP transport, entry point |
+| `src/` | The books MCP server, the supplier network MCP server, the ledger, storage, the HTTP transport, the model relay and sign-in check |
 | `ui/` | The two MCP Apps views |
 | `web/` | The simulated Alexa+ screen (`web/vendor/` is built by `npm run build`) |
+| `api/` | The hosted page's model relay (a Vercel function) |
 | `skills/imali-ai-shop-books/` | The Agent Skill |
 | `deploy/` | The AgentCore Dockerfile, deploy script and notes |
-| `scripts/` | The smoke client, the Cognito sign-in helper, the page's bundler |
+| `scripts/` | The smoke client, the Cognito sign-in helper, the page's bundler, the hosted page's deploy |
 | `test/` | The tests |
-| `tools/video/` | How the demo film was made: Murf voices, a recorder that plays each line into the live page, the mixer |
+| `tools/` | How the film and the gallery were made from the live page |
+| `docs/` | The architecture picture and the friction log |
 
 ## Licence
 

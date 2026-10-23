@@ -12,7 +12,8 @@ const OUT = path.resolve(__dirname, "..", "submission", "gallery");
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch(process.env.CHROME_BIN ? { executablePath: process.env.CHROME_BIN } : {});
   const ctx = await browser.newContext({ viewport: { width: 1350, height: 900 }, deviceScaleFactor: 2 });
-  const settings = { shop: `gallery-${Date.now().toString(36)}`, voice: false, awsUser: process.env.GALLERY_AWS_USER || "", awsPass: process.env.GALLERY_AWS_PASS || "" };
+  // GALLERY_ENDPOINT=aws takes every picture against the MCP servers on AgentCore.
+  const settings = { shop: `gallery-${Date.now().toString(36)}`, voice: false, endpoint: process.env.GALLERY_ENDPOINT || "local", awsUser: process.env.GALLERY_AWS_USER || "", awsPass: process.env.GALLERY_AWS_PASS || "" };
   await ctx.addInitScript(`try { localStorage.setItem("imali-ai-alexa-settings", ${JSON.stringify(JSON.stringify(settings))}); } catch {}`);
   const page = await ctx.newPage();
   const shot = async (name) => {
@@ -27,10 +28,10 @@ const OUT = path.resolve(__dirname, "..", "submission", "gallery");
   };
 
   await page.goto(`${APP}/?film`);
-  await page.waitForFunction(() => document.getElementById("chip-proto").textContent.includes("2025-11-25"), null, { timeout: 20000 });
+  await page.waitForFunction(() => document.getElementById("chip-proto").textContent.includes("2025-11-25"), null, { timeout: 40000 });
   await page.waitForSelector("#cards iframe");
   await page.evaluate(() => { document.getElementById("reply").textContent = "Try “Order what's low from Kudzai Wholesale.”"; });
-  await shot("03-stock-carousel");
+  await shot("04-stock-carousel");
 
   await hear("Sold three bread and two cooking oil, cash");
   await ready();
@@ -40,26 +41,29 @@ const OUT = path.resolve(__dirname, "..", "submission", "gallery");
   await ready();
   await hear("Order what's low from Kudzai Wholesale");
   await page.waitForSelector("#confirm:not([hidden])", { timeout: 90000 });
-  await shot("02-confirm-purchase-elicitation");
+  await shot("02-supplier-quote-elicitation");
   await page.click("#confirm-yes");
   await ready();
-  await shot("04-purchase-order-confirmed");
+  await shot("03-order-placed-with-supplier");
 
   await hear("Closing up. I counted fifty dollars in the till");
   await ready();
   await shot("05-close-the-day");
 
-  if (settings.awsUser) {
-    await page.click("#open-settings");
-    await page.selectOption("#s-endpoint", "aws");
-    await page.dispatchEvent("#s-endpoint", "change");
-    await page.click("#s-save");
-    await page.waitForFunction(() => document.getElementById("chip-endpoint").textContent.includes("AWS") && document.getElementById("chip-proto").textContent.includes("2025-11-25"), null, { timeout: 40000 });
-    await page.waitForSelector("#cards iframe");
-    await hear("Who owes me money?");
-    await ready();
-    await shot("06-on-aws-agentcore");
-  }
+  await page.reload();
+  await page.waitForFunction(() => document.getElementById("chip-proto").textContent.includes("2025-11-25"), null, { timeout: 40000 });
+  await page.waitForSelector("#cards iframe");
+  await hear("Who owes me money?");
+  await ready();
+  await shot("06-new-session-same-books");
+
+  await page.goto(`${APP}/`);
+  await page.waitForFunction(() => document.getElementById("chip-proto").textContent.includes("2025-11-25"), null, { timeout: 40000 });
+  await page.click("#toggle-view");
+  await hear("How are we doing today?");
+  await ready();
+  await page.evaluate(() => scrollTo(0, 0));
+  await shot("07-device-view");
   await browser.close();
 })().catch((err) => {
   console.error(err);
