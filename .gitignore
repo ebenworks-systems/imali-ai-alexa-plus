@@ -10,3 +10,5 @@ CLAUDE.local.md
 .claude/
 web/vendor/
 deploy/agentcore.out.json
+submission/
+__pycache__/
