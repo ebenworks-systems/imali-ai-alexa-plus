@@ -13,6 +13,7 @@ const UI_PROTOCOL = "2026-01-26";
 const SETTINGS_KEY = "imali-ai-alexa-settings";
 const PASS_KEY = "imali-ai-alexa-aws-pass";
 const TRACE = "io.ebenworks.imali/trace";
+const LAST_SESSION_KEY = "imali-ai-alexa-last-session";
 
 // Settings stay in this browser. The AWS password stays in this tab's session storage only, and a copy an older
 // version left in local storage is moved there.
@@ -172,6 +173,12 @@ async function connect() {
   $("f-server").textContent = `${server?.name} ${server?.version}`;
   $("f-endpoint").textContent = settings.endpoint === "aws" ? "AWS · Bedrock AgentCore Runtime" : url.host + url.pathname;
   $("f-session").textContent = transport.sessionId ? `${transport.sessionId.slice(0, 8)}… · shop ${shopId()}` : `stateless · shop ${shopId()}`;
+  // The page remembers the last session it opened for this shop, so a reload shows a new session reading the same books.
+  const earlier = JSON.parse(localStorage.getItem(LAST_SESSION_KEY) || "{}");
+  const isNew = transport.sessionId && earlier.shop === shopId() && earlier.id && earlier.id !== transport.sessionId;
+  $("f-earlier-row").hidden = !isNew;
+  if (isNew) $("f-earlier").textContent = `${earlier.id.slice(0, 8)}… (before this page load), same shop`;
+  if (transport.sessionId) localStorage.setItem(LAST_SESSION_KEY, JSON.stringify({ shop: shopId(), id: transport.sessionId }));
   chip("chip-proto", `MCP ${transport.protocolVersion}`, true);
   chip("chip-tools", `${tools.length} tools`);
   chip("chip-endpoint", settings.endpoint === "aws" ? "AWS AgentCore" : "This computer");

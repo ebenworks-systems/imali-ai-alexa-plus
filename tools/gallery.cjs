@@ -44,6 +44,8 @@ const OUT = path.resolve(__dirname, "..", "submission", "gallery");
   await shot("02-supplier-quote-elicitation");
   await page.click("#confirm-yes");
   await ready();
+  // Open the books server's own call to the supplier's place_order in "Under the hood".
+  await page.evaluate(() => { const d = document.querySelector("#traffic li.nested details"); if (d) d.open = true; });
   await shot("03-order-placed-with-supplier");
 
   await hear("Closing up. I counted fifty dollars in the till");
