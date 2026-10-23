@@ -436,6 +436,7 @@ function fillSettings() {
 }
 
 async function main() {
+  if (new URLSearchParams(location.search).has("film")) document.body.classList.add("film");
   tickClock();
   setInterval(tickClock, 15_000);
   config = await fetch("config.json").then((r) => r.json()).catch(() => config);
@@ -487,6 +488,25 @@ async function main() {
   if (!config.model?.relay && !settings.llmKey) els.reply.textContent = "Add an OpenAI-compatible model endpoint and key in Settings to talk to the agent. The MCP server is already connected.";
   await connect().catch(showError);
 }
+
+// For recordings and automated checks: plays a spoken request into the page as if the microphone had heard
+// it, word by word, then handles it exactly as speech recognition's final result would be handled.
+window.imaliHear = async (text, ms = 1500) => {
+  lastInputWasVoice = true;
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  setState("listening");
+  els.mic.setAttribute("aria-pressed", "true");
+  const words = text.split(" ");
+  for (let i = 1; i <= words.length; i++) {
+    els.said.textContent = `“${words.slice(0, i).join(" ")}”`;
+    await new Promise((r) => setTimeout(r, ms / words.length));
+  }
+  els.mic.setAttribute("aria-pressed", "false");
+  setState("idle");
+  if (pendingConfirm) return pendingConfirm(/\b(yes|yeah|confirm|ok)\b/i.test(text) ? "accept" : "decline");
+  return turn(text);
+};
+window.imaliBusy = () => busy || els.screen.dataset.state === "thinking";
 
 function showError(err) {
   setState("idle", "Offline");

@@ -214,3 +214,13 @@ button { cursor: pointer; touch-action: manipulation; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---- recording layout (?film): the device and the log fill a 1280 x 720 frame ---- */
+body.film .lede, body.film .suggest { display: none; }
+body.film .stage { padding-top: 22px; gap: 18px 32px; grid-template-areas: "device hood" "controls hood"; }
+body.film .screen { height: calc(100vh - 210px); }
+body.film .hood { top: 92px; padding: 20px 20px; }
+body.film .hood h2 { font-size: 21px; margin: 8px 0 10px; }
+body.film .facts div { padding: 5px 0; }
+body.film .traffic { max-height: calc(100vh - 470px); }
+body.film .hood.lit { box-shadow: 0 0 0 4px var(--carrot), var(--shadow); transition: box-shadow 0.4s var(--ease); }

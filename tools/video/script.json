@@ -1,0 +1,164 @@
+{
+ "voices": {
+  "owner": {
+   "voiceId": "en-US-imani",
+   "style": "Conversational"
+  },
+  "assistant": {
+   "voiceId": "en-US-iris",
+   "style": "Conversational"
+  },
+  "narrator": {
+   "voiceId": "en-US-terrell",
+   "style": "Narration"
+  }
+ },
+ "scenes": [
+  {
+   "id": "sale",
+   "beats": [
+    {
+     "owner": "o1",
+     "say": "Sold three bread and two cooking oil, cash."
+    },
+    {
+     "assistant": true
+    },
+    {
+     "narrator": "n1",
+     "say": "Rudo is an invented shop owner. Each card is a real double-entry record, balanced to the cent by code, never by the model.",
+     "caption": "Rudo is an invented shop owner. Each card is a real double-entry record, balanced to the cent by code, never by the model."
+    }
+   ]
+  },
+  {
+   "id": "credit",
+   "beats": [
+    {
+     "owner": "o2",
+     "say": "Mai Tendai took two sugar and a bag of maize meal on credit."
+    },
+    {
+     "assistant": true
+    }
+   ]
+  },
+  {
+   "id": "low",
+   "beats": [
+    {
+     "owner": "o3",
+     "say": "What's running low?"
+    },
+    {
+     "assistant": true
+    }
+   ]
+  },
+  {
+   "id": "order",
+   "beats": [
+    {
+     "owner": "o4",
+     "say": "Order what's low from Kudzai Wholesale."
+    },
+    {
+     "assistant": "ask"
+    },
+    {
+     "narrator": "n4",
+     "say": "Ordering is a purchase, so the server asks the owner first, through MCP elicitation. Nothing counts until she says yes.",
+     "caption": "Ordering is a purchase, so the server asks the owner first, through MCP elicitation. Nothing counts until she says yes."
+    },
+    {
+     "owner": "o4b",
+     "say": "Yes."
+    },
+    {
+     "assistant": true
+    }
+   ]
+  },
+  {
+   "id": "close",
+   "beats": [
+    {
+     "owner": "o5",
+     "say": "Closing up. I counted fifty dollars in the till."
+    },
+    {
+     "assistant": true
+    }
+   ]
+  },
+  {
+   "id": "hood",
+   "beats": [
+    {
+     "action": "hood-on"
+    },
+    {
+     "narrator": "n6",
+     "say": "This page is a real MCP client, on the official TypeScript SDK: protocol twenty twenty-five, eleven, twenty-five, over Streamable HTTP. The cards are MCP Apps the server ships, and every call is in this log.",
+     "caption": "This page is a real MCP client on the official TypeScript SDK: protocol 2025-11-25 over Streamable HTTP. The cards are MCP Apps the server ships, and every call is in this log."
+    },
+    {
+     "action": "hood-off"
+    }
+   ]
+  },
+  {
+   "id": "memory",
+   "beats": [
+    {
+     "narrator": "n7",
+     "say": "Close the page and come back later. A new session, the same books.",
+     "caption": "Close the page and come back later: a new session, the same books."
+    },
+    {
+     "action": "reload"
+    },
+    {
+     "owner": "o7",
+     "say": "Who owes me money?"
+    },
+    {
+     "assistant": true
+    }
+   ]
+  },
+  {
+   "id": "aws",
+   "beats": [
+    {
+     "narrator": "n8",
+     "say": "The same server runs on Amazon Bedrock AgentCore Runtime, with Amazon Cognito sign-in, and the books in DynamoDB.",
+     "caption": "The same server runs on Amazon Bedrock AgentCore Runtime, with Amazon Cognito sign-in and the books in DynamoDB."
+    },
+    {
+     "action": "aws"
+    },
+    {
+     "owner": "o8",
+     "say": "Paid five dollars for electricity."
+    },
+    {
+     "assistant": true
+    }
+   ]
+  },
+  {
+   "id": "end",
+   "beats": [
+    {
+     "action": "end-card"
+    },
+    {
+     "narrator": "n9",
+     "say": "Imali AI has kept shop books in a chat since April. New for this hackathon: the MCP server, the Alexa plus experience, and hosting on AWS.",
+     "caption": "Imali AI has kept shop books in a chat since April. New for this hackathon: the MCP server, the Alexa+ experience and hosting on AWS."
+    }
+   ]
+  }
+ ]
+}
