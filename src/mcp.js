@@ -366,8 +366,8 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
         const c = L.closeDay(books, { counted_cash });
         if (!c.ok) return { out: askBack(books, "day-close", c.question) };
         const s = c.summary;
-        const diffLine = c.diff === 0 ? "The till matches the books to the cent." : `The till is ${c.diff < 0 ? "short" : "over"} by ${cents(Math.abs(c.diff))}; I've recorded it.`;
-        const speech = `${diffLine} Today: sales ${cents(s.sales)}, gross profit ${cents(s.grossProfit)}${s.expenses ? `, running costs ${cents(s.expenses)}` : ""}${s.overshort ? `, till ${s.overshort > 0 ? "short" : "over"} ${cents(Math.abs(s.overshort))}` : ""}, so you're ${s.net < 0 ? "down" : "up"} ${cents(Math.abs(s.net))}.`;
+        const diffLine = c.diff === 0 ? "The till matches the books to the cent." : `The till is ${c.diff < 0 ? "short" : "over"} by ${cents(Math.abs(c.diff))}, and that's recorded.`;
+        const speech = `${diffLine} You sold ${cents(s.sales)} today${s.expenses ? `, spent ${cents(s.expenses)} on running costs` : ""}, and you're ${s.net < 0 ? "down" : "up"} ${cents(Math.abs(s.net))} after cost of goods${s.overshort ? " and the till" : ""}.`;
         const after = { ...c.books, closes: [...(c.books.closes || []), { day: books.today, at: books.now, expected: c.expected, counted: c.counted, diff: c.diff }] };
         return {
           books: after,
@@ -444,7 +444,7 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
           const done = { ...current, status: "confirmed", confirmedAt: books.now, payment: answer.content.payment || "on_account" };
           const after = L.addOrder(books, done);
           log("order-confirmed", { shopId, number: done.number, total: done.total });
-          const speech = `Order ${done.number} to ${done.supplier} is confirmed: ${summary}, about ${cents(done.total)}. I'll book the stock in when it arrives.`;
+          const speech = `Done. ${done.number} to ${done.supplier} is confirmed, about ${cents(done.total)}. I'll book the stock in when it arrives.`;
           return { books: after, out: result({ ok: true, kind: "purchase-order", speech, order: orderView(done), confirmed_by: "owner, through elicitation", shop: shopView(after), warnings: [] }) };
         }
         const status = answer.action === "decline" || answer.content?.confirm === false ? "cancelled" : "draft";

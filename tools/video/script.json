@@ -2,15 +2,18 @@
  "voices": {
   "owner": {
    "voiceId": "en-US-imani",
-   "style": "Conversational"
+   "style": "Conversational",
+   "rate": 4
   },
   "assistant": {
    "voiceId": "en-US-iris",
-   "style": "Conversational"
+   "style": "Conversational",
+   "rate": 8
   },
   "narrator": {
    "voiceId": "en-US-terrell",
-   "style": "Narration"
+   "style": "Narration",
+   "rate": 6
   }
  },
  "scenes": [
@@ -37,18 +40,6 @@
     {
      "owner": "o2",
      "say": "Mai Tendai took two sugar and a bag of maize meal on credit."
-    },
-    {
-     "assistant": true
-    }
-   ]
-  },
-  {
-   "id": "low",
-   "beats": [
-    {
-     "owner": "o3",
-     "say": "What's running low?"
     },
     {
      "assistant": true
@@ -113,7 +104,8 @@
     {
      "narrator": "n7",
      "say": "Close the page and come back later. A new session, the same books.",
-     "caption": "Close the page and come back later: a new session, the same books."
+     "caption": "Close the page and come back later: a new session, the same books.",
+     "overlap": true
     },
     {
      "action": "reload"
@@ -133,7 +125,8 @@
     {
      "narrator": "n8",
      "say": "The same server runs on Amazon Bedrock AgentCore Runtime, with Amazon Cognito sign-in, and the books in DynamoDB.",
-     "caption": "The same server runs on Amazon Bedrock AgentCore Runtime, with Amazon Cognito sign-in and the books in DynamoDB."
+     "caption": "The same server runs on Amazon Bedrock AgentCore Runtime, with Amazon Cognito sign-in and the books in DynamoDB.",
+     "overlap": true
     },
     {
      "action": "aws"

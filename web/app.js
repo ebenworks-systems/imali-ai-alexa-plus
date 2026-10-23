@@ -261,7 +261,7 @@ function systemPrompt() {
 
 ${instructions}
 
-Speak like a calm, quick shop assistant. When a tool's "speech" line answers the owner, say that line as it is; you may add a few words but no figure of your own. If the owner's words are unclear, ask one short question. Today's date in the shop: ${new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Harare" }).format(new Date())}.`;
+Speak like a calm, quick shop assistant. When a tool's "speech" line answers the owner, say that line as it is and stop: no offers, no follow-up questions, no figure of your own. Ask a question only when a tool asks one. If the owner's words are unclear, ask one short question. Today's date in the shop: ${new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Harare" }).format(new Date())}.`;
 }
 
 function modelHeaders() {

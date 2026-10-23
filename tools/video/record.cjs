@@ -14,8 +14,9 @@ const SCRIPT = require("./script.json");
 const LENGTHS = JSON.parse(fs.readFileSync(path.join(WORK, "takes", "lengths.json"), "utf8"));
 const SHOP = process.env.FILM_SHOP || `rudo-${Date.now().toString(36)}`;
 const GAP = 0.4;
-// The assistant's voice reads about 14 characters a second; the real take replaces this estimate later.
-const estimate = (text) => text.length / 14 + 0.5;
+// The assistant's voice read 10.9 characters a second at Murf's default rate (measured 23 Oct 2026); at rate 8
+// it is a little quicker. The real take replaces this estimate when the film is mixed.
+const estimate = (text) => text.length / 11.8 + 0.4;
 
 const END_CARD = `(() => {
   const d = document.createElement("div");
@@ -55,6 +56,10 @@ const END_CARD = `(() => {
     script: async ({ page, mark, sleep }) => {
       const h = hand(page);
       let n = 0;
+      let voiceUntil = 0; // when a narrator line that runs over the next action will end
+      const t0 = Date.now();
+      const now = () => (Date.now() - t0) / 1000;
+      const quiet = async () => { const left = voiceUntil - now(); if (left > 0) await sleep(left * 1000 + 150); };
       const idle = async () => {
         await page.waitForFunction(() => !window.imaliBusy() && document.getElementById("reply").textContent.length > 0, null, { timeout: 90000, polling: 150 });
       };
@@ -62,6 +67,7 @@ const END_CARD = `(() => {
         mark(`scene:${scene.id}`);
         for (const beat of scene.beats) {
           if (beat.owner) {
+            await quiet();
             const len = LENGTHS[beat.owner];
             mark(`owner:${beat.owner}`);
             await page.evaluate(([t, ms]) => { window.imaliHear(t, ms); }, [beat.say, Math.max(500, len * 1000 - 150)]);
@@ -83,8 +89,10 @@ const END_CARD = `(() => {
             replies.push({ id, text });
             await sleep((estimate(text) + GAP) * 1000);
           } else if (beat.narrator) {
+            await quiet();
             mark(`narrator:${beat.narrator}`);
-            await sleep((LENGTHS[beat.narrator] + GAP) * 1000);
+            if (beat.overlap) voiceUntil = now() + LENGTHS[beat.narrator] + GAP;
+            else await sleep((LENGTHS[beat.narrator] + GAP) * 1000);
           } else if (beat.action === "hood-on") {
             await page.evaluate(() => document.querySelector(".hood").classList.add("lit"));
             await h.point(".traffic li:first-child", { scroll: false });
@@ -106,6 +114,7 @@ const END_CARD = `(() => {
             await page.waitForSelector("#cards iframe", { timeout: 20000 });
             await sleep(900);
           } else if (beat.action === "end-card") {
+            await quiet();
             await page.evaluate(END_CARD);
             await sleep(1200);
           }

@@ -19,7 +19,7 @@ VOICES = SCRIPT["voices"]
 
 
 def murf(text, voice):
-    body = {"voiceId": voice["voiceId"], "style": voice["style"], "text": text, "format": "WAV", "sampleRate": 24000, "channelType": "MONO", "modelVersion": "GEN2"}
+    body = {"voiceId": voice["voiceId"], "style": voice["style"], "text": text, "format": "WAV", "sampleRate": 24000, "channelType": "MONO", "modelVersion": "GEN2", "rate": voice.get("rate", 0)}
     req = urllib.request.Request("https://api.murf.ai/v1/speech/generate", data=json.dumps(body).encode(), method="POST",
                                  headers={"api-key": os.environ["MURF_API_KEY"], "Content-Type": "application/json", "Accept": "application/json"})
     for attempt in range(3):
@@ -45,6 +45,7 @@ def trimmed(src, dst):
 
 def spoken(text):
     """Money the way a person says it: $12.30 as 12 dollars 30, $5.00 as 5 dollars."""
+    text = re.sub(r"\bPO-0*(\d+)\b", r"P O \1", text)
     text = re.sub(r"\$(\d+)\.00\b", r"\1 dollars", text)
     return re.sub(r"\$(\d+)\.(\d\d)\b", lambda m: f"{m.group(1)} dollars {int(m.group(2))}", text)
 
