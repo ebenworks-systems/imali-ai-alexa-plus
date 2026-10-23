@@ -22,6 +22,8 @@ skills knows which tool to call and that it must never state a figure of its own
 
 ![The simulated Alexa+ screen recording a sale, with the MCP traffic beside it](docs/screenshot.png)
 
+The demo film (2:48, recorded from the live page with live MCP and model calls): https://youtu.be/7eg4CjfgeJg
+
 The demo shop (Rudo's Corner Shop in Harare), its customers, supplier and figures are invented.
 
 ## Run it on your computer
