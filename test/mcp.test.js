@@ -114,11 +114,15 @@ describe("Imali AI MCP server", () => {
       },
     });
     const r = await call(client, "reorder_stock", {});
-    assert.match(asked.message, /^Send order PO-0001 to Kudzai Wholesale\?/);
+    // The books server asked the supplier network's MCP server for a quote, and the owner saw that quote.
+    assert.match(asked.message, /^Kudzai Wholesale can deliver 4 candles on \d{4}-\d{2}-\d{2} for \$3\.60\. They can't send all of it: Candles, pack of 6: only 4 available\. Place order PO-0001\?$/);
     assert.equal(asked.requestedSchema.properties.payment.oneOf.length, 3);
-    assert.equal(r.order.status, "confirmed");
+    // After the yes, it placed the order there and kept the supplier's order number.
+    assert.equal(r.order.status, "ordered");
+    assert.match(r.order.supplier_order, /^KW-\d{4}$/);
+    assert.match(r.speech, /accepted PO-0001 as their order KW-\d{4}, \$3\.60, delivering on/);
     assert.equal(r.confirmed_by, "owner, through elicitation");
-    assert.ok(r.order.lines.some((l) => l.item === "candles-6"));
+    assert.ok(r.order.lines.some((l) => l.item === "candles-6" && l.qty === 4));
     const day = await call(client, "get_day_summary");
     assert.equal(day.entries, 0, "an order moves no money and no stock");
     await client.close();
@@ -137,10 +141,13 @@ describe("Imali AI MCP server", () => {
     assert.equal(r.order.status, "draft");
     assert.equal(r.order.total, "$34.00");
     const c = await call(client, "confirm_purchase_order", { order: "PO-0001" });
-    assert.equal(c.order.status, "confirmed");
+    assert.equal(c.order.status, "ordered");
+    assert.equal(c.order.supplier_order, "HB-1001");
     const delivered = await call(client, "record_stock_received", { supplier: "Harare Bakery", items: [{ item: "bread", qty: 40 }], paid: "on_account", order: "PO-0001" });
     assert.equal(delivered.entry.amount, "$34.00");
     assert.equal(delivered.entry.balanced, true);
+    const journal = JSON.parse((await client.readResource({ uri: "imali-ai://books/journal" })).contents[0].text);
+    assert.equal(journal.orders[0].status, "received", "the delivery closes the order");
     await client.close();
   });
 

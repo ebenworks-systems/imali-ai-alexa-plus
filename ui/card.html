@@ -35,7 +35,10 @@
   .tile.hl { background: #fbe3d4; }
   .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
   .pill.draft { background: #fbe3d4; color: #7a2e06; }
-  .pill.confirmed { background: #e7f1ea; color: var(--green); }
+  .pill.confirmed, .pill.ordered, .pill.received { background: #e7f1ea; color: var(--green); }
+  .supplier { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .supplier span { background: var(--canvas); border-radius: 12px; padding: 8px 12px; font-size: 13px; }
+  .supplier b { display: block; font-size: 15px; color: var(--ink); }
   .pill.cancelled { background: #eeeae6; color: var(--slate); }
   .ask { font-size: 20px; font-weight: 500; letter-spacing: -0.01em; margin: 10px 0 0; }
   .muted { color: var(--slate); }
@@ -85,7 +88,9 @@
     else if (d.kind === "purchase-order" && d.order) {
       const o = d.order;
       const rows = o.lines.map((l) => `<tr><td>${esc(l.name)}<span class="party">${esc(l.unitCost)} a ${esc(l.unit)}</span></td><td class="n">${esc(l.qty)}</td><td class="n">${esc(l.total)}</td></tr>`).join("");
-      html = `${head(d, `${o.number} to ${o.supplier}`)}<span class="pill ${esc(o.status)}">${esc(o.status)}</span><table><thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Cost</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>Estimated total</td><td></td><td class="n">${esc(o.total)}</td></tr></tfoot></table><p class="sub">${o.status === "confirmed" ? `Confirmed${d.confirmed_by ? ` by the ${esc(d.confirmed_by)}` : ""}. No money or stock moves until the delivery is recorded.` : o.status === "draft" ? "Nothing counts until the owner confirms." : "Cancelled. Nothing was ordered."}</p>`;
+      const sup = o.supplier_order ? `<div class="supplier"><span>Supplier's order<b>${esc(o.supplier_order)}</b></span><span>Delivery<b>${esc(o.delivery_date)}</b></span><span>Paying<b>${esc(({ on_account: "On account", cash: "Cash on delivery", mobile: "Mobile money" })[o.payment] || "On account")}</b></span></div>` : "";
+      const note = o.status === "ordered" ? `Placed with ${esc(o.supplier)} on the supplier network after the owner's yes. No money or stock moves until the delivery is recorded.` : o.status === "confirmed" ? `Confirmed${d.confirmed_by ? ` by the ${esc(d.confirmed_by)}` : ""}. No money or stock moves until the delivery is recorded.` : o.status === "draft" ? "Nothing counts until the owner confirms." : o.status === "received" ? "Delivered and booked in." : "Cancelled. Nothing was ordered.";
+      html = `${head(d, `${o.number} to ${o.supplier}`)}<span class="pill ${esc(o.status)}">${esc(o.status)}</span>${sup}<table><thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Cost</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>${o.status === "ordered" ? "Supplier's total" : "Estimated total"}</td><td></td><td class="n">${esc(o.total)}</td></tr></tfoot></table><p class="sub">${note}</p>`;
     } else if (d.entry) html = `${head(d, d.entry.memo)}<div class="amount">${esc(d.entry.amount)}</div>${journal(d.entry)}`;
     else html = `${head(d)}<p class="ask">${esc(d.speech)}</p>`;
     root.innerHTML = `<div class="card">${html}${warnings(d)}</div>`;

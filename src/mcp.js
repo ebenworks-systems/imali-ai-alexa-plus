@@ -3,6 +3,8 @@
 // here from the books, so an assistant can say it as it is and never has to work out a figure.
 
 import { readFileSync } from "node:fs";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ElicitResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -115,7 +117,9 @@ const OrderView = z.object({
   id: z.string(),
   number: z.string(),
   supplier: z.string(),
-  status: z.enum(["draft", "confirmed", "cancelled", "received"]),
+  status: z.enum(["draft", "confirmed", "ordered", "cancelled", "received"]),
+  supplier_order: z.string().optional(),
+  delivery_date: z.string().optional(),
   at: z.string(),
   lines: z.array(z.object({ item: z.string(), name: z.string(), qty: z.number(), unit: z.string(), unitCost: z.string(), total: z.string() })),
   total: z.string(),
@@ -123,7 +127,7 @@ const OrderView = z.object({
 });
 
 function orderView(o) {
-  return { id: o.id, number: o.number, supplier: o.supplier, status: o.status, at: o.at, total: cents(o.total), ...(o.payment ? { payment: o.payment } : {}), lines: o.lines.map((l) => ({ item: l.item, name: l.name, qty: l.qty, unit: l.unit, unitCost: cents(l.unitCost), total: cents(l.total) })) };
+  return { id: o.id, number: o.number, supplier: o.supplier, status: o.status, at: o.at, total: cents(o.total), ...(o.payment ? { payment: o.payment } : {}), ...(o.supplierOrder ? { supplier_order: o.supplierOrder, delivery_date: o.deliveryDate } : {}), lines: o.lines.map((l) => ({ item: l.item, name: l.name, qty: l.qty, unit: l.unit, unitCost: cents(l.unitCost), total: cents(l.total) })) };
 }
 
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
@@ -131,7 +135,7 @@ const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true,
 const cardMeta = { ui: { resourceUri: CARD_URI }, "ui/resourceUri": CARD_URI };
 const stockMeta = { ui: { resourceUri: STOCK_URI }, "ui/resourceUri": STOCK_URI };
 
-export function createMcpServer({ store, shopId, clock = () => new Date(), log = () => {} }) {
+export function createMcpServer({ store, shopId, clock = () => new Date(), log = () => {}, supplier = null }) {
   const server = new McpServer(SERVER_INFO, {
     capabilities: { tools: {}, resources: {}, prompts: {}, logging: {} },
     instructions: INSTRUCTIONS,
@@ -175,6 +179,44 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
     return typeof id === "string" && id.length <= 100 ? id : null;
   };
 
+  // The supplier network is another MCP server. This server is its client: it asks for a quote before the owner
+  // confirms an order, and places the order there after the yes. If the supplier cannot be reached, the order
+  // stays in the books only, and the owner is told so.
+  const within = (p, ms) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error("timeout")), ms))]);
+  async function withSupplier(extra, fn) {
+    const url = supplier?.url?.();
+    if (!url) return null;
+    const client = new Client({ name: "imali-ai-shop-books", version: SERVER_INFO.version });
+    const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: supplier.headers?.(extra) ?? {} } });
+    try {
+      await within(client.connect(transport), 20_000);
+      return await within(fn(client), 20_000);
+    } catch (err) {
+      log("supplier-unreachable", { shopId, message: String(err?.message || err) });
+      return null;
+    } finally {
+      client.close().catch(() => {});
+    }
+  }
+  const supplierLines = (order) => order.lines.map((l) => ({ item: l.item, qty: l.qty, name: l.name }));
+  async function supplierQuote(extra, order) {
+    return withSupplier(extra, async (c) => (await c.callTool({ name: "quote_order", arguments: { supplier: order.supplier, lines: supplierLines(order) } })).structuredContent);
+  }
+  async function supplierPlace(extra, order, payment) {
+    return withSupplier(extra, async (c) => (await c.callTool({ name: "place_order", arguments: { supplier: order.supplier, lines: supplierLines(order), buyer_reference: order.number, payment } })).structuredContent);
+  }
+  // A quote replaces the books' estimate with the supplier's prices and what it can actually send.
+  function withQuote(order, q) {
+    const lines = order.lines
+      .map((l) => {
+        const ql = q.lines.find((x) => x.item === l.item);
+        if (!ql || !ql.qty) return null;
+        return { ...l, qty: ql.qty, unitCost: ql.unit_cents, total: ql.unit_cents * ql.qty };
+      })
+      .filter(Boolean);
+    return { ...order, lines, total: lines.reduce((t, l) => t + l.total, 0), quote: { deliveryDate: q.delivery_date, short: q.lines.filter((l) => l.qty < l.asked).map((l) => `${l.name}: ${l.note || "none"}`) } };
+  }
+
   // A record tool: build the entry with the ledger, refuse it unless it balances, apply it, say it.
   function recordTool(name, title, description, inputSchema, build, speak) {
     server.registerTool(
@@ -189,7 +231,9 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
           if (!built.ok) return { out: askBack(books, name, built.question) };
           if (!L.isBalanced(built.entry)) return { out: askBack(books, name, "That entry would not balance, so I left the books as they were. Can you say it again?") };
           if (requestId) built.entry.requestId = requestId;
-          const after = L.applyEntry(books, built.entry);
+          let after = L.applyEntry(books, built.entry);
+          const filled = built.entry.order ? L.findOrder(after, built.entry.order) : null;
+          if (filled) after = L.addOrder(after, { ...filled, status: "received", receivedAt: books.now });
           log("entry", { shopId, kind: built.entry.kind, amount: built.entry.amount });
           const speech = speak(built.entry, after, args) + levelsLine(after, built.entry);
           return { books: after, out: result({ ok: true, kind: built.entry.kind, speech, entry: entryView(built.entry), warnings: built.warnings, shop: shopView(after) }) };
@@ -425,26 +469,41 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       _meta: cardMeta,
     },
     async (args, extra) => {
-      // Draft and save the order first, so a client without elicitation can confirm it with confirm_purchase_order.
+      // 1. Draft the order from the books and save it, so a client without elicitation can confirm it later.
       const drafted = await withBooks((books) => {
         const d = L.draftPurchaseOrder(books, args);
         if (!d.ok) return { out: { books, d } };
         return { books: L.addOrder(books, d.order), out: { books: L.addOrder(books, d.order), d } };
       });
       if (!drafted.d.ok) return askBack(drafted.books, "purchase-order", drafted.d.question);
-      const order = drafted.d.order;
-      const summary = itemsSaid(drafted.books, order.lines);
+      let order = drafted.d.order;
 
-      const caps = server.server.getClientCapabilities();
+      // 2. Ask the supplier's own system for a quote: its prices, what it can send, and when.
+      const q = await supplierQuote(extra, order);
+      if (q?.ok) {
+        order = withQuote(order, q);
+        if (!order.lines.length) {
+          await withBooks((books) => ({ books: L.addOrder(books, { ...order, status: "cancelled" }), out: null }));
+          return askBack(drafted.books, "purchase-order", `${order.supplier} has none of those items in stock right now. Shall I try another supplier?`);
+        }
+        await withBooks((books) => ({ books: L.addOrder(books, order), out: null }));
+      }
+      const summary = itemsSaid(drafted.books, order.lines);
+      const shortNote = order.quote?.short?.length ? ` They can't send all of it: ${order.quote.short.join("; ")}.` : "";
+      const message = order.quote
+        ? `${order.supplier} can deliver ${summary} on ${order.quote.deliveryDate} for ${cents(order.total)}.${shortNote} Place order ${order.number}?`
+        : `Send order ${order.number} to ${order.supplier}? ${summary}. Estimated cost ${cents(order.total)}.`;
+
+      // 3. The owner confirms through elicitation; nothing is ordered before the yes.
       let answer = null;
-      if (caps?.elicitation) {
+      if (server.server.getClientCapabilities()?.elicitation) {
         try {
           answer = await extra.sendRequest(
             {
               method: "elicitation/create",
               params: {
                 mode: "form",
-                message: `Send order ${order.number} to ${order.supplier}? ${summary}. Estimated cost ${cents(order.total)}.`,
+                message,
                 requestedSchema: {
                   type: "object",
                   properties: {
@@ -465,47 +524,64 @@ export function createMcpServer({ store, shopId, clock = () => new Date(), log =
       }
 
       if (!answer) {
-        const speech = `I've drafted ${order.number} to ${order.supplier}: ${summary}, about ${cents(order.total)}. Say yes to confirm it.`;
+        const speech = order.quote
+          ? `${order.supplier} can deliver ${summary} on ${order.quote.deliveryDate} for ${cents(order.total)}.${shortNote} Say yes to place order ${order.number}.`
+          : `I've drafted ${order.number} to ${order.supplier}: ${summary}, about ${cents(order.total)}. Say yes to confirm it.`;
         return result({ ok: true, kind: "purchase-order", speech, order: orderView(order), shop: shopView(drafted.books), warnings: ["Waiting for the owner to confirm: call confirm_purchase_order once they say yes."] });
       }
-
-      return withBooks((books) => {
-        const current = L.findOrder(books, order.id) ?? order;
-        if (answer.action === "accept" && answer.content?.confirm === true) {
-          const done = { ...current, status: "confirmed", confirmedAt: books.now, payment: answer.content.payment || "on_account" };
-          const after = L.addOrder(books, done);
-          log("order-confirmed", { shopId, number: done.number, total: done.total });
-          const speech = `Done. ${done.number} to ${done.supplier} is confirmed, about ${cents(done.total)}. I'll book the stock in when it arrives.`;
-          return { books: after, out: result({ ok: true, kind: "purchase-order", speech, order: orderView(done), confirmed_by: "owner, through elicitation", shop: shopView(after), warnings: [] }) };
-        }
-        const status = answer.action === "decline" || answer.content?.confirm === false ? "cancelled" : "draft";
-        const kept = { ...current, status };
-        const after = L.addOrder(books, kept);
-        const speech = status === "cancelled" ? `Okay, I've cancelled ${kept.number}. Nothing was ordered.` : `${kept.number} stays a draft. Nothing is ordered until you confirm it.`;
-        return { books: after, out: result({ ok: true, kind: "purchase-order", speech, order: orderView(kept), shop: shopView(after), warnings: [] }) };
-      });
+      if (!(answer.action === "accept" && answer.content?.confirm === true)) {
+        return withBooks((books) => {
+          const status = answer.action === "decline" || answer.content?.confirm === false ? "cancelled" : "draft";
+          const kept = { ...(L.findOrder(books, order.id) ?? order), status };
+          const after = L.addOrder(books, kept);
+          const speech = status === "cancelled" ? `Okay, I've cancelled ${kept.number}. Nothing was ordered.` : `${kept.number} stays a draft. Nothing is ordered until you confirm it.`;
+          return { books: after, out: result({ ok: true, kind: "purchase-order", speech, order: orderView(kept), shop: shopView(after), warnings: [] }) };
+        });
+      }
+      // 4. Place it with the supplier and keep its order number in the books.
+      return placeOrder(extra, order.id, answer.content.payment || "on_account", "owner, through elicitation");
     },
   );
+
+  async function placeOrder(extra, orderId, payment, confirmedBy) {
+    const books0 = prepare((await store.load(shopId)) ?? sampleBooks(clock()), clock());
+    const current = L.findOrder(books0, orderId);
+    const placed = current ? await supplierPlace(extra, current, payment) : null;
+    return withBooks((books) => {
+      const order = L.findOrder(books, orderId) ?? current;
+      let done;
+      let speech;
+      const warnings = [];
+      if (placed?.ok && placed.order_id) {
+        done = { ...order, status: "ordered", confirmedAt: books.now, payment, supplierOrder: placed.order_id, deliveryDate: placed.delivery_date, total: placed.total_cents };
+        speech = `Done. ${order.supplier} accepted ${order.number} as their order ${placed.order_id}, ${cents(placed.total_cents)}, delivering on ${placed.delivery_date}. I'll book the stock in when it arrives.`;
+      } else {
+        done = { ...order, status: "confirmed", confirmedAt: books.now, payment };
+        speech = `Done. ${done.number} to ${done.supplier} is confirmed, about ${cents(done.total)}. I'll book the stock in when it arrives.`;
+        if (supplier?.url?.()) warnings.push(`${order.supplier}'s system did not answer, so the order is in your books only and has not reached them.`);
+      }
+      const after = L.addOrder(books, done);
+      log("order-confirmed", { shopId, number: done.number, total: done.total, supplierOrder: done.supplierOrder || null });
+      return { books: after, out: result({ ok: true, kind: "purchase-order", speech, order: orderView(done), confirmed_by: confirmedBy, shop: shopView(after), warnings }) };
+    });
+  }
 
   server.registerTool(
     "confirm_purchase_order",
     {
       title: "Confirm a drafted purchase order",
-      description: "Confirm a drafted purchase order after the owner has clearly said yes to it. For clients that cannot show the confirmation form themselves.",
+      description: "Confirm a drafted purchase order after the owner has clearly said yes to it, and place it with the supplier. For clients that cannot show the confirmation form themselves.",
       inputSchema: { order: z.string().max(20).optional().describe("The order number, e.g. PO-0001; defaults to the latest draft"), payment: z.enum(["on_account", "cash", "mobile"]).default("on_account") },
       outputSchema: OrderOut,
       annotations: { title: "Confirm a drafted purchase order", ...WRITE },
       _meta: cardMeta,
     },
-    async ({ order: ref, payment }) =>
-      withBooks((books) => {
-        const order = L.findOrder(books, ref);
-        if (!order || order.status !== "draft") return { out: askBack(books, "purchase-order", ref ? `I can't find a draft order ${ref}. Which order do you mean?` : "There's no draft order waiting. What would you like to order?") };
-        const done = { ...order, status: "confirmed", confirmedAt: books.now, payment };
-        const after = L.addOrder(books, done);
-        const summary = itemsSaid(books, done.lines);
-        return { books: after, out: result({ ok: true, kind: "purchase-order", speech: `Order ${done.number} to ${done.supplier} is confirmed: ${summary}, about ${cents(done.total)}.`, order: orderView(done), confirmed_by: "owner, by voice", shop: shopView(after), warnings: [] }) };
-      }),
+    async ({ order: ref, payment }, extra) => {
+      const books0 = prepare((await store.load(shopId)) ?? sampleBooks(clock()), clock());
+      const order = L.findOrder(books0, ref);
+      if (!order || order.status !== "draft") return askBack(books0, "purchase-order", ref ? `I can't find a draft order ${ref}. Which order do you mean?` : "There's no draft order waiting. What would you like to order?");
+      return placeOrder(extra, order.id, payment, "owner, by voice");
+    },
   );
 
   // ---- putting things right ---------------------------------------------------------------------

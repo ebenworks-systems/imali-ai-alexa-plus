@@ -33,10 +33,10 @@ export class MemoryStore {
   async save(shopId, books) {
     this.docs.set(shopId, structuredClone(books));
   }
-  // Reads the books (making the demo shop on first use), lets fn change them, and saves the result.
-  update(shopId, fn) {
+  // Reads the books (making the demo shop on first use, or what init makes), lets fn change them, saves the result.
+  update(shopId, fn, init = sampleBooks) {
     return this.serial(shopId, async () => {
-      const books = (await this.load(shopId)) ?? sampleBooks();
+      const books = (await this.load(shopId)) ?? init();
       const out = await fn(books);
       if (out?.books && out.books !== books) await this.save(shopId, out.books);
       else if (!(await this.load(shopId))) await this.save(shopId, books);

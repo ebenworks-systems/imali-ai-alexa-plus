@@ -184,7 +184,7 @@ function askOwner(params) {
     pendingConfirm = done;
     form.onsubmit = (e) => { e.preventDefault(); done("accept"); };
     $("confirm-no").onclick = () => done("decline");
-    speak(`${params.message} Shall I go ahead?`, { listenAfter: true });
+    speak(/\?\s*$/.test(params.message) ? params.message : `${params.message} Shall I go ahead?`, { listenAfter: true });
   });
 }
 

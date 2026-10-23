@@ -15,6 +15,7 @@ TABLE=imali-ai-alexa-books
 POOL_NAME=imali-ai-alexa-owners
 CLIENT_NAME=imali-ai-alexa-simulator
 RUNTIME_NAME=imali_ai_alexa_mcp
+SUPPLIER_NAME=imali_ai_alexa_supplier
 ROLE_ARN="arn:aws:iam::${ACCOUNT}:role/ImaliAiAlexaAgentCoreRole"
 TAG=$(git rev-parse --short HEAD)
 IMAGE="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/${REPO}:${TAG}"
@@ -60,38 +61,47 @@ aws_ ecr get-login-password | docker login --username AWS --password-stdin "${AC
 docker push -q "$IMAGE" >/dev/null
 docker logout "${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com" >/dev/null   # do not leave the 12-hour ECR token in ~/.docker/config.json
 
-say "Runtime ${RUNTIME_NAME} (AgentCore Runtime, protocol MCP, JWT sign-in, stateful sessions)"
 ARTIFACT="{\"containerConfiguration\":{\"containerUri\":\"${IMAGE}\"}}"
 AUTH="{\"customJWTAuthorizer\":{\"discoveryUrl\":\"${DISCOVERY}\",\"allowedClients\":[\"${CLIENT_ID}\"]}}"
 HEADERS='{"requestHeaderAllowlist":["Authorization","X-Amzn-Bedrock-AgentCore-Runtime-Custom-Shop"]}'
-RUNTIME_ID=$(aws_ bedrock-agentcore-control list-agent-runtimes --query "agentRuntimes[?agentRuntimeName=='${RUNTIME_NAME}'].agentRuntimeId | [0]" --output text)
-if [ "$RUNTIME_ID" = "None" ] || [ -z "$RUNTIME_ID" ]; then
-  RUNTIME_ID=$(aws_ bedrock-agentcore-control create-agent-runtime --agent-runtime-name "$RUNTIME_NAME" \
-    --description "Imali AI shop books: MCP server for the Amazon Developer Hackathon (Alexa+ track)" \
-    --agent-runtime-artifact "$ARTIFACT" --role-arn "$ROLE_ARN" --network-configuration networkMode=PUBLIC \
-    --protocol-configuration serverProtocol=MCP --authorizer-configuration "$AUTH" \
-    --request-header-configuration "$HEADERS" \
-    --lifecycle-configuration idleRuntimeSessionTimeout=300,maxLifetime=3600 \
-    --query agentRuntimeId --output text)
-else
-  aws_ bedrock-agentcore-control update-agent-runtime --agent-runtime-id "$RUNTIME_ID" \
-    --agent-runtime-artifact "$ARTIFACT" --role-arn "$ROLE_ARN" --network-configuration networkMode=PUBLIC \
-    --protocol-configuration serverProtocol=MCP --authorizer-configuration "$AUTH" \
-    --request-header-configuration "$HEADERS" \
-    --lifecycle-configuration idleRuntimeSessionTimeout=300,maxLifetime=3600 >/dev/null
-fi
-for _ in $(seq 1 60); do
-  STATUS=$(aws_ bedrock-agentcore-control get-agent-runtime --agent-runtime-id "$RUNTIME_ID" --query status --output text)
-  [ "$STATUS" = "READY" ] && break
-  case "$STATUS" in *FAILED*) echo "runtime $STATUS"; aws_ bedrock-agentcore-control get-agent-runtime --agent-runtime-id "$RUNTIME_ID" --query failureReason --output text; exit 1;; esac
-  sleep 5
-done
-RUNTIME_ARN=$(aws_ bedrock-agentcore-control get-agent-runtime --agent-runtime-id "$RUNTIME_ID" --query agentRuntimeArn --output text)
-ENCODED=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1], safe=""))' "$RUNTIME_ARN")
-MCP_URL="https://bedrock-agentcore.${REGION}.amazonaws.com/runtimes/${ENCODED}/invocations?qualifier=DEFAULT"
+
+# Creates or updates one MCP runtime from the same image, waits for READY, and sets RT_ID, RT_ARN and RT_URL.
+runtime() {
+  local name=$1 env_json=$2 description=$3
+  RT_ID=$(aws_ bedrock-agentcore-control list-agent-runtimes --query "agentRuntimes[?agentRuntimeName=='${name}'].agentRuntimeId | [0]" --output text)
+  local common=(--agent-runtime-artifact "$ARTIFACT" --role-arn "$ROLE_ARN" --network-configuration networkMode=PUBLIC
+    --protocol-configuration serverProtocol=MCP --authorizer-configuration "$AUTH" --request-header-configuration "$HEADERS"
+    --lifecycle-configuration idleRuntimeSessionTimeout=300,maxLifetime=3600 --environment-variables "$env_json")
+  if [ "$RT_ID" = "None" ] || [ -z "$RT_ID" ]; then
+    RT_ID=$(aws_ bedrock-agentcore-control create-agent-runtime --agent-runtime-name "$name" --description "$description" "${common[@]}" --query agentRuntimeId --output text)
+  else
+    aws_ bedrock-agentcore-control update-agent-runtime --agent-runtime-id "$RT_ID" --description "$description" "${common[@]}" >/dev/null
+  fi
+  local status=""
+  for _ in $(seq 1 90); do
+    status=$(aws_ bedrock-agentcore-control get-agent-runtime --agent-runtime-id "$RT_ID" --query status --output text)
+    [ "$status" = "READY" ] && break
+    case "$status" in *FAILED*) echo "runtime $name $status"; aws_ bedrock-agentcore-control get-agent-runtime --agent-runtime-id "$RT_ID" --query failureReason --output text; exit 1;; esac
+    sleep 5
+  done
+  RT_ARN=$(aws_ bedrock-agentcore-control get-agent-runtime --agent-runtime-id "$RT_ID" --query agentRuntimeArn --output text)
+  RT_URL="https://bedrock-agentcore.${REGION}.amazonaws.com/runtimes/$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1], safe=""))' "$RT_ARN")/invocations?qualifier=DEFAULT"
+  STATUS=$status
+}
+
+say "Runtime ${SUPPLIER_NAME} (the supplier network's MCP server)"
+runtime "$SUPPLIER_NAME" '{"IMALI_ROLE":"supplier"}' "Imali AI supplier network (demo): MCP server the shop's books server orders from"
+SUPPLIER_URL=$RT_URL
+SUPPLIER_ID=$RT_ID
+
+say "Runtime ${RUNTIME_NAME} (the shop's books, MCP, JWT sign-in, stateful sessions; orders through ${SUPPLIER_NAME})"
+runtime "$RUNTIME_NAME" "{\"SUPPLIER_MCP_URL\":\"${SUPPLIER_URL}\"}" "Imali AI shop books: MCP server for the Amazon Developer Hackathon (Alexa+ track)"
+RUNTIME_ID=$RT_ID
+RUNTIME_ARN=$RT_ARN
+MCP_URL=$RT_URL
 
 cat > "$STATE" <<EOF
-{"region":"${REGION}","table":"${TABLE}","userPoolId":"${POOL_ID}","clientId":"${CLIENT_ID}","runtimeId":"${RUNTIME_ID}","runtimeArn":"${RUNTIME_ARN}","image":"${IMAGE}","mcpUrl":"${MCP_URL}","status":"${STATUS}"}
+{"region":"${REGION}","table":"${TABLE}","userPoolId":"${POOL_ID}","clientId":"${CLIENT_ID}","runtimeId":"${RUNTIME_ID}","runtimeArn":"${RUNTIME_ARN}","image":"${IMAGE}","mcpUrl":"${MCP_URL}","supplierRuntimeId":"${SUPPLIER_ID}","supplierMcpUrl":"${SUPPLIER_URL}","status":"${STATUS}"}
 EOF
 say "Done: ${STATUS}"
 echo "MCP URL: ${MCP_URL}"

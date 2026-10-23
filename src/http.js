@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createMcpServer } from "./mcp.js";
+import { createSupplierServer } from "./supplier.js";
 import { relayChat } from "./relay.js";
 import { cleanShopId } from "./store.js";
 
@@ -88,17 +89,37 @@ export function createApp({ store, env = process.env, log = (event, data) => con
   }, 60_000);
   sweeper.unref();
 
-  async function handleMcp(req, res, url) {
+  // The shop's books server, and how it reaches the supplier network: on AWS another AgentCore runtime
+  // (SUPPLIER_MCP_URL), locally this same process at /supplier/mcp. The caller's sign-in and shop go along,
+  // so the supplier sees the same signed-in shop.
+  const supplierLink = {
+    url: () => env.SUPPLIER_MCP_URL || (server.address() ? `http://127.0.0.1:${server.address().port}/supplier/mcp` : ""),
+    headers: (extra) => {
+      const h = extra?.requestInfo?.headers || {};
+      const out = {};
+      if (h.authorization) out.authorization = h.authorization;
+      const shop = h["x-amzn-bedrock-agentcore-runtime-custom-shop"] || h["x-imali-shop"];
+      if (shop) {
+        out["x-amzn-bedrock-agentcore-runtime-custom-shop"] = shop;
+        out["x-imali-shop"] = shop;
+      }
+      return out;
+    },
+  };
+  const makeBooks = (shopId) => createMcpServer({ store, shopId, log, supplier: supplierLink });
+  const makeSupplier = (shopId) => createSupplierServer({ store, buyer: shopId, log });
+
+  async function handleMcp(req, res, url, make) {
     if (req.method === "POST") {
       const body = await readJson(req);
       if (stateless) {
-        const server = createMcpServer({ store, shopId: shopFrom(req, url, env), log });
+        const mcp = make(shopFrom(req, url, env));
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on("close", () => {
           transport.close();
-          server.close();
+          mcp.close();
         });
-        await server.connect(transport);
+        await mcp.connect(transport);
         return transport.handleRequest(req, res, body);
       }
       const id = req.headers["mcp-session-id"];
@@ -110,11 +131,11 @@ export function createApp({ store, env = process.env, log = (event, data) => con
         if (!isInitializeRequest(body)) return send(res, 400, { jsonrpc: "2.0", error: { code: -32000, message: "Start with an initialize request" }, id: null });
         const shopId = shopFrom(req, url, env);
         const platformId = req.headers["mcp-session-id"];
-        const server = createMcpServer({ store, shopId, log });
+        const mcp = make(shopId);
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => platformId || randomUUID(),
           onsessioninitialized: (sid) => {
-            sessions.set(sid, { transport, server, shopId });
+            sessions.set(sid, { transport, server: mcp, shopId });
             touch(sid);
             log("session", { sid: sid.slice(0, 8), shopId, client: body.params?.clientInfo?.name, protocol: body.params?.protocolVersion });
           },
@@ -125,9 +146,9 @@ export function createApp({ store, env = process.env, log = (event, data) => con
             sessions.delete(sid);
             seen.delete(sid);
           }
-          server.close().catch(() => {});
+          mcp.close().catch(() => {});
         };
-        await server.connect(transport);
+        await mcp.connect(transport);
         return transport.handleRequest(req, res, body);
       }
       return send(res, 404, { jsonrpc: "2.0", error: { code: -32001, message: "Session not found" }, id: null });
@@ -174,7 +195,8 @@ export function createApp({ store, env = process.env, log = (event, data) => con
     const url = new URL(req.url, "http://localhost");
     try {
       if (req.method === "OPTIONS") return send(res, 204, "");
-      if (url.pathname === "/mcp") return await handleMcp(req, res, url);
+      if (url.pathname === "/mcp") return await handleMcp(req, res, url, env.IMALI_ROLE === "supplier" ? makeSupplier : makeBooks);
+      if (url.pathname === "/supplier/mcp" && env.IMALI_ROLE !== "supplier") return await handleMcp(req, res, url, makeSupplier);
       if (url.pathname === "/health" || url.pathname === "/ping") return send(res, 200, { status: "Healthy", sessions: sessions.size });
       if (url.pathname === "/config.json")
         return send(res, 200, {
