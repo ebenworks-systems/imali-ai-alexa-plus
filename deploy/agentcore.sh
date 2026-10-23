@@ -58,6 +58,7 @@ docker pull -q --platform linux/arm64 node:22-slim >/dev/null
 DOCKER_BUILDKIT=0 docker build -q --platform linux/arm64 -f "$STAGE/deploy/Dockerfile" -t "$IMAGE" "$STAGE" >/dev/null
 aws_ ecr get-login-password | docker login --username AWS --password-stdin "${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com" >/dev/null
 docker push -q "$IMAGE" >/dev/null
+docker logout "${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com" >/dev/null   # do not leave the 12-hour ECR token in ~/.docker/config.json
 
 say "Runtime ${RUNTIME_NAME} (AgentCore Runtime, protocol MCP, JWT sign-in, stateful sessions)"
 ARTIFACT="{\"containerConfiguration\":{\"containerUri\":\"${IMAGE}\"}}"
@@ -94,4 +95,4 @@ cat > "$STATE" <<EOF
 EOF
 say "Done: ${STATUS}"
 echo "MCP URL: ${MCP_URL}"
-echo "Sign-in: Cognito pool ${POOL_ID}, app client ${CLIENT_ID} (USER_PASSWORD_AUTH); see README, section 'Run it against AWS'"
+echo "Sign-in: Cognito pool ${POOL_ID}, app client ${CLIENT_ID} (USER_PASSWORD_AUTH); see deploy/AWS-NOTES.md"
