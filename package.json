@@ -1,0 +1,27 @@
+{
+  "name": "imali-ai-alexa-plus",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Imali AI for Alexa+: a self-hosted MCP server (spec 2025-11-25, Streamable HTTP) that keeps a shop's double-entry books by voice, with a simulated Alexa+ screen that is a real MCP client.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build-web.mjs",
+    "start": "node scripts/build-web.mjs && node src/index.js",
+    "test": "node --test",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^3.25.76"
+  },
+  "optionalDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.700.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

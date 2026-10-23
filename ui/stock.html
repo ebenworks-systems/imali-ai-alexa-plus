@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Imali AI stock</title>
+<style>
+  :root { --canvas: #f3f0ee; --paper: #fcfbfa; --ink: #141413; --slate: #696969; --rule: #e4dfda; --orange: #cf4500; --carrot: #f37338; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; color: var(--ink); font: 450 16px/1.4 "Sofia Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { background: var(--paper); border-radius: 28px; padding: 20px 0 18px; box-shadow: 0 24px 48px rgba(20, 20, 19, 0.08); }
+  .top { display: flex; align-items: baseline; gap: 10px; padding: 0 24px; }
+  .eyebrow { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); }
+  .eyebrow i { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); display: inline-block; }
+  .demo { margin-left: auto; font-size: 12px; color: var(--slate); }
+  h1 { font-size: 22px; font-weight: 500; letter-spacing: -0.02em; margin: 8px 24px 14px; }
+  .rail { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 24px 10px; scrollbar-width: none; }
+  .rail::-webkit-scrollbar { display: none; }
+  .tile { flex: 0 0 168px; scroll-snap-align: start; background: var(--canvas); border-radius: 22px; padding: 14px 14px 12px; position: relative; }
+  .tile.low { background: #fbe3d4; }
+  .tile .badge { position: absolute; top: 12px; right: 12px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #7a2e06; background: #fff; border-radius: 999px; padding: 3px 8px; }
+  .tile .name { font-size: 14px; font-weight: 600; line-height: 1.25; min-height: 36px; padding-right: 40px; }
+  .tile .qty { font-size: 40px; font-weight: 500; letter-spacing: -0.03em; line-height: 1; margin-top: 10px; font-variant-numeric: tabular-nums; }
+  .tile .unit { font-size: 12px; color: var(--slate); }
+  .bar { height: 6px; border-radius: 99px; background: rgba(20, 20, 19, 0.08); margin: 12px 0 8px; overflow: hidden; }
+  .bar b { display: block; height: 100%; border-radius: 99px; background: var(--ink); }
+  .tile.low .bar b { background: var(--orange); }
+  .meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--slate); font-variant-numeric: tabular-nums; }
+  .foot { display: flex; align-items: center; gap: 10px; padding: 6px 24px 0; }
+  .dots { display: flex; gap: 5px; }
+  .dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--rule); }
+  .dots span.on { background: var(--carrot); width: 18px; border-radius: 99px; }
+  button { margin-left: auto; font: inherit; font-size: 14px; font-weight: 600; color: #fff; background: var(--orange); border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:focus-visible { outline: 3px solid var(--carrot); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div id="root"><div class="wrap"><h1>Waiting for the books…</h1></div></div>
+<script>
+// An MCP Apps view (ui/ protocol 2026-01-26): the shop's stock as a carousel, lowest first.
+// Its button asks the host to call reorder_stock on the same server, so the owner can reorder from the card.
+(() => {
+  const root = document.getElementById("root");
+  const pending = new Map();
+  let nextId = 1;
+  const post = (msg) => window.parent.postMessage({ jsonrpc: "2.0", ...msg }, "*");
+  const request = (method, params) => new Promise((resolve, reject) => { const id = nextId++; pending.set(id, { resolve, reject }); post({ id, method, params }); });
+  const notify = (method, params) => post({ method, params });
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+  function render(result) {
+    const d = result?.structuredContent;
+    if (!d?.items) { root.innerHTML = `<div class="wrap"><h1>${esc(result?.content?.[0]?.text || "")}</h1></div>`; return size(); }
+    const tiles = d.items.map((r) => {
+      const scale = Math.max(r.reorder_at * 3, r.qty, 1);
+      return `<div class="tile${r.low ? " low" : ""}">${r.low ? '<span class="badge">Low</span>' : ""}<div class="name">${esc(r.name)}</div><div class="qty">${esc(r.qty)}</div><div class="unit">${esc(r.unit)}${r.qty === 1 ? "" : "s"} on the shelf</div><div class="bar"><b style="width:${Math.min(100, Math.round((r.qty / scale) * 100))}%"></b></div><div class="meta"><span>Reorder at ${esc(r.reorder_at)}</span><span>${esc(r.sold_7_days)} sold / 7 days</span></div></div>`;
+    }).join("");
+    const dots = d.items.map((_, i) => `<span${i === 0 ? ' class="on"' : ""}></span>`).join("");
+    root.innerHTML = `<div class="wrap"><div class="top"><div class="eyebrow"><i></i>Stock on hand</div>${d.shop?.demo ? '<span class="demo">Invented demo shop</span>' : ""}</div><h1>${d.low_count ? `${esc(d.low_count)} at the reorder level` : "Everything is above its reorder level"}</h1><div class="rail" id="rail">${tiles}</div><div class="foot"><div class="dots" id="dots">${d.items.length > 1 ? dots : ""}</div>${d.low_count ? '<button id="reorder" type="button">Reorder low items</button>' : ""}</div></div>`;
+    const rail = document.getElementById("rail");
+    rail.addEventListener("scroll", () => {
+      const i = Math.round(rail.scrollLeft / 180);
+      document.querySelectorAll("#dots span").forEach((s, j) => s.classList.toggle("on", j === i));
+    }, { passive: true });
+    const btn = document.getElementById("reorder");
+    if (btn) btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Drafting the order…";
+      try { await request("tools/call", { name: "reorder_stock", arguments: {} }); btn.textContent = "Order drafted"; }
+      catch { btn.disabled = false; btn.textContent = "Reorder low items"; }
+    });
+    size();
+  }
+
+  function size() {
+    requestAnimationFrame(() => notify("ui/notifications/size-changed", { height: Math.ceil(document.documentElement.getBoundingClientRect().height) }));
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return;
+    const m = event.data;
+    if (!m || m.jsonrpc !== "2.0") return;
+    if (m.id !== undefined && !m.method && pending.has(m.id)) {
+      const p = pending.get(m.id);
+      pending.delete(m.id);
+      return m.error ? p.reject(m.error) : p.resolve(m.result);
+    }
+    if (m.method === "ui/notifications/tool-result") render(m.params);
+    else if (m.method === "ui/resource-teardown") post({ id: m.id, result: {} });
+    else if (m.id !== undefined && m.method) post({ id: m.id, error: { code: -32601, message: "Method not found" } });
+  });
+
+  request("ui/initialize", { appInfo: { name: "imali-ai-stock", version: "1.0.0" }, appCapabilities: { availableDisplayModes: ["inline"] }, protocolVersion: "2026-01-26" })
+    .then(() => notify("ui/notifications/initialized", {}))
+    .catch(() => {});
+  new ResizeObserver(size).observe(document.body);
+})();
+</script>
+</body>
+</html>

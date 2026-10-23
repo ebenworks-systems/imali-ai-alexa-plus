@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Imali AI card</title>
+<style>
+  :root { --canvas: #f3f0ee; --paper: #fcfbfa; --ink: #141413; --slate: #696969; --rule: #e4dfda; --orange: #cf4500; --carrot: #f37338; --green: #1d7a4a; --red: #b3261e; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; color: var(--ink); font: 450 16px/1.4 "Sofia Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .card { background: var(--paper); border-radius: 28px; padding: 22px 24px 20px; box-shadow: 0 24px 48px rgba(20, 20, 19, 0.08); }
+  .eyebrow { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); }
+  .eyebrow i { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); display: inline-block; }
+  .eyebrow .demo { margin-left: auto; letter-spacing: 0.02em; text-transform: none; font-weight: 500; }
+  h1 { font-size: 22px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.2; margin: 10px 0 4px; }
+  .amount { font-size: 44px; font-weight: 500; letter-spacing: -0.03em; line-height: 1; margin: 12px 0 2px; font-variant-numeric: tabular-nums; }
+  .sub { color: var(--slate); font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); padding: 0 0 6px; border-bottom: 1px solid var(--rule); }
+  th.n, td.n { text-align: right; }
+  td { padding: 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  td .code { color: var(--slate); font-size: 12px; margin-right: 6px; }
+  td .party { display: block; color: var(--slate); font-size: 12px; }
+  tfoot td { border-bottom: 0; font-weight: 700; }
+  .seal { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 5px 12px 5px 9px; border-radius: 999px; background: #e7f1ea; color: var(--green); font-size: 13px; font-weight: 600; }
+  .seal svg { width: 14px; height: 14px; }
+  .warn { margin: 12px 0 0; padding: 0; list-style: none; }
+  .warn li { position: relative; padding: 8px 12px 8px 30px; margin-top: 6px; border-radius: 14px; background: #fbeee6; color: #7a2e06; font-size: 14px; }
+  .warn li::before { content: ""; position: absolute; left: 13px; top: 15px; width: 7px; height: 7px; border-radius: 50%; background: var(--carrot); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 16px; }
+  .tile { background: var(--canvas); border-radius: 18px; padding: 12px 14px; }
+  .tile b { display: block; font-size: 22px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .tile span { font-size: 12px; color: var(--slate); }
+  .tile.hl { background: #fbe3d4; }
+  .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .pill.draft { background: #fbe3d4; color: #7a2e06; }
+  .pill.confirmed { background: #e7f1ea; color: var(--green); }
+  .pill.cancelled { background: #eeeae6; color: var(--slate); }
+  .ask { font-size: 20px; font-weight: 500; letter-spacing: -0.01em; margin: 10px 0 0; }
+  .muted { color: var(--slate); }
+  .empty { padding: 30px 0; text-align: center; color: var(--slate); }
+</style>
+</head>
+<body>
+<div id="root"><div class="card empty">Waiting for the books…</div></div>
+<script>
+// An MCP Apps view (ui/ protocol 2026-01-26), written by hand so it carries no third-party code.
+// The host sends the tool's result; this draws it. Every figure shown comes from the server's books.
+(() => {
+  const root = document.getElementById("root");
+  const pending = new Map();
+  let nextId = 1;
+  const post = (msg) => window.parent.postMessage({ jsonrpc: "2.0", ...msg }, "*");
+  const request = (method, params) => new Promise((resolve, reject) => { const id = nextId++; pending.set(id, { resolve, reject }); post({ id, method, params }); });
+  const notify = (method, params) => post({ method, params });
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const LABEL = { sale: "Sale recorded", "stock-in": "Stock received", expense: "Running cost", "customer-payment": "Tab payment", "supplier-payment": "Supplier paid", "cash-count": "Till count", "day-summary": "Today so far", "day-close": "Day closed", tabs: "Customers' tabs", "purchase-order": "Purchase order", undo: "Entry removed", reset: "Demo reset" };
+  const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+
+  function head(d, title) {
+    const demo = d.shop?.demo ? '<span class="demo">Invented demo shop</span>' : "";
+    return `<div class="eyebrow"><i></i>${esc(LABEL[d.kind] || "Imali AI")}${demo}</div>${title ? `<h1>${esc(title)}</h1>` : ""}`;
+  }
+  function warnings(d) {
+    return d.warnings?.length ? `<ul class="warn">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : "";
+  }
+  function journal(e) {
+    if (!e) return "";
+    const rows = e.lines.map((l) => `<tr><td><span class="code">${esc(l.code)}</span>${esc(l.account)}${l.party ? `<span class="party">${esc(l.party)}</span>` : ""}</td><td class="n">${esc(l.debit)}</td><td class="n">${esc(l.credit)}</td></tr>`).join("");
+    return `<table><thead><tr><th>Account</th><th class="n">Debit</th><th class="n">Credit</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>Totals</td><td class="n">${esc(e.totals.debit)}</td><td class="n">${esc(e.totals.credit)}</td></tr></tfoot></table>${e.balanced ? `<div class="seal">${check}Balanced to the cent</div>` : ""}`;
+  }
+  function tiles(list) {
+    return `<div class="grid">${list.map(([label, value, hl]) => `<div class="tile${hl ? " hl" : ""}"><b>${esc(value)}</b><span>${esc(label)}</span></div>`).join("")}</div>`;
+  }
+
+  function render(result) {
+    const d = result?.structuredContent;
+    if (!d) { root.innerHTML = `<div class="card"><p>${esc(result?.content?.[0]?.text || "")}</p></div>`; return size(); }
+    let html;
+    if (d.ok === false) html = `${head(d)}<p class="ask">${esc(d.question)}</p>`;
+    else if (d.kind === "day-summary") html = `${head(d, d.day)}<div class="amount">${esc(d.sales)}</div><div class="sub">sales today</div>${tiles([["Gross profit", d.gross_profit, true], ["Running costs", d.running_costs], ["Up on the day", d.net], ["Cash sales", d.cash_sales], ["Mobile money", d.mobile_sales], ["On credit", d.credit_sales], ["Till should hold", d.cash_in_till, true]])}`;
+    else if (d.kind === "day-close") html = `${head(d, d.shop?.today)}${tiles([["Books expected", d.expected], ["You counted", d.counted], ["Difference", d.difference, d.difference !== "$0.00"]])}${tiles([["Sales", d.sales], ["Gross profit", d.gross_profit, true], ["Running costs", d.running_costs], ["Up on the day", d.net, true]])}${journal(d.entry)}`;
+    else if (d.kind === "tabs") html = `${head(d)}<div class="amount">${esc(d.total)}</div><div class="sub">owed to the shop</div><table><tbody>${(d.tabs.length ? d.tabs : [{ name: "Nobody", owes: "$0.00" }]).map((t) => `<tr><td>${esc(t.name)}</td><td class="n">${esc(t.owes)}</td></tr>`).join("")}</tbody></table>`;
+    else if (d.kind === "purchase-order" && d.order) {
+      const o = d.order;
+      const rows = o.lines.map((l) => `<tr><td>${esc(l.name)}<span class="party">${esc(l.unitCost)} a ${esc(l.unit)}</span></td><td class="n">${esc(l.qty)}</td><td class="n">${esc(l.total)}</td></tr>`).join("");
+      html = `${head(d, `${o.number} to ${o.supplier}`)}<span class="pill ${esc(o.status)}">${esc(o.status)}</span><table><thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Cost</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>Estimated total</td><td></td><td class="n">${esc(o.total)}</td></tr></tfoot></table><p class="sub">${o.status === "confirmed" ? `Confirmed${d.confirmed_by ? ` by the ${esc(d.confirmed_by)}` : ""}. No money or stock moves until the delivery is recorded.` : o.status === "draft" ? "Nothing counts until the owner confirms." : "Cancelled. Nothing was ordered."}</p>`;
+    } else if (d.entry) html = `${head(d, d.entry.memo)}<div class="amount">${esc(d.entry.amount)}</div>${journal(d.entry)}`;
+    else html = `${head(d)}<p class="ask">${esc(d.speech)}</p>`;
+    root.innerHTML = `<div class="card">${html}${warnings(d)}</div>`;
+    size();
+  }
+
+  function size() {
+    requestAnimationFrame(() => notify("ui/notifications/size-changed", { height: Math.ceil(document.documentElement.getBoundingClientRect().height) }));
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return;
+    const m = event.data;
+    if (!m || m.jsonrpc !== "2.0") return;
+    if (m.id !== undefined && !m.method && pending.has(m.id)) {
+      const p = pending.get(m.id);
+      pending.delete(m.id);
+      return m.error ? p.reject(m.error) : p.resolve(m.result);
+    }
+    if (m.method === "ui/notifications/tool-result") render(m.params);
+    else if (m.method === "ui/resource-teardown") post({ id: m.id, result: {} });
+    else if (m.id !== undefined && m.method) post({ id: m.id, error: { code: -32601, message: "Method not found" } });
+  });
+
+  request("ui/initialize", { appInfo: { name: "imali-ai-card", version: "1.0.0" }, appCapabilities: { availableDisplayModes: ["inline"] }, protocolVersion: "2026-01-26" })
+    .then(() => notify("ui/notifications/initialized", {}))
+    .catch(() => {});
+  new ResizeObserver(size).observe(document.body);
+})();
+</script>
+</body>
+</html>
